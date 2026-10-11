@@ -1,0 +1,13 @@
+{
+  "name": "rubika-war-bot",
+  "version": "0.1.0",
+  "description": "ربات بازی جنگ جهانی برای روبیکا (Node.js + MongoDB)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "mongoose": "^8.24.5"
+  }
+}

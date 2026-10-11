@@ -1,0 +1,108 @@
+'use strict';
+// رسیدن محموله‌ها: هر چند ثانیه محموله‌های سررسیده بررسی می‌شوند
+const { Country, Shipment } = require('./db');
+const G = require('./game');
+const N = require('./notify');
+const S = require('./season');
+const cfg = require('./config');
+const T = require('./text');
+const { fa, mono, bold, quote } = T;
+
+async function refund(s) {
+  const d = s.kind === 'aid' ? G.pos(s.payload.res || {}) : G.forceDelta(s.payload.force || {}, 1);
+  await G.change(s.fromId, d, {}, true);
+}
+
+async function land(s) {
+  const from = await Country.findById(s.fromId);
+  const to = await Country.findById(s.toId);
+  const ownerOf = (c) => c && c.ownerId;
+
+  if (!to || to.status !== 'active' || !to.ownerId) {
+    await refund(s);
+    await Shipment.updateOne({ _id: s._id }, { $set: { status: 'returned' } });
+    await N.dm(ownerOf(from), quote('محموله ' + mono(s.code) + ' به مقصد نرسید و به کشور شما بازگشت.'));
+    return;
+  }
+
+  if (s.kind === 'aid') {
+    await G.change(to._id, G.pos(s.payload.res), {}, true);
+    await Shipment.updateOne({ _id: s._id }, { $set: { status: 'delivered' } });
+    await N.announce(
+      quote(bold('محموله تحویل شد')) + '\nکد رهگیری: ' + mono(s.code) + '\nمقصد: ' + mono(s.toName)
+    );
+    await N.dm(to.ownerId, quote('محموله کمکی از ' + mono(s.fromName) + ' رسید.') + '\n' + G.describeBundle({ res: s.payload.res }));
+    await N.dm(ownerOf(from), quote('محموله ' + mono(s.code) + ' به ' + mono(s.toName) + ' تحویل شد.'));
+    return;
+  }
+
+  // حمله
+  const r = G.battle(s.payload.force, s.type, to);
+  const back = G.forceDelta(r.survivors, 1);
+  for (const [k, v] of Object.entries(r.loot)) if (v) back['res.' + k] = (back['res.' + k] || 0) + v;
+  await G.change(s.fromId, back, {}, true);
+
+  const loss = G.forceDelta(r.defLoss, -1);
+  for (const [k, v] of Object.entries(r.loot)) if (v) loss['res.' + k] = (loss['res.' + k] || 0) - v;
+  const dmg = r.win ? G.damage(r) : 0;
+  if (dmg) loss.hp = -dmg;
+  const after = await G.change(to._id, loss, {}, true);
+  const hpLeft = Math.max(0, after ? after.hp : 0);
+
+  await Shipment.updateOne({ _id: s._id }, { $set: { status: 'delivered' } });
+
+  const tname = G.TYPES[s.type].name;
+  await N.announce(
+    quote(bold('نتیجه نبرد ' + tname)) +
+      '\n\nحمله‌کننده: ' + mono(s.fromName) +
+      '\nمدافع: ' + mono(s.toName) +
+      '\nپیروز: ' + mono(r.win ? s.fromName : s.toName) +
+      (r.win ? '\nسلامت مدافع: ' + mono(fa(hpLeft) + ' از ' + fa(G.HP_MAX)) : '') +
+      '\nکد رهگیری: ' + mono(s.code)
+  );
+
+  const lootTxt = Object.keys(r.loot).length ? '\nغنایم:\n' + G.describeBundle({ res: r.loot }) : '';
+  await N.dm(
+    ownerOf(from),
+    quote(bold(r.win ? 'پیروزی در حمله ' + tname : 'شکست در حمله ' + tname), 'هدف: ' + s.toName) +
+      '\nنیروهای بازگشتی:\n' + (G.describeBundle({ units: r.survivors, res: {} }) || mono('هیچ')) + lootTxt
+  );
+  await N.dm(
+    to.ownerId,
+    quote(bold(r.win ? 'کشور شما مورد حمله ' + tname + ' قرار گرفت و شکست خورد' : 'حمله ' + tname + ' دفع شد'), 'مهاجم: ' + s.fromName) +
+      (r.win ? '\nسلامت کشور: ' + mono(fa(hpLeft) + ' از ' + fa(G.HP_MAX)) : '') +
+      lootTxt.replace('غنایم', 'منابع از دست رفته')
+  );
+
+  // حذف تیم: سلامت کشور به صفر برسد
+  if (r.win && after && after.hp <= 0) {
+    const se = await S.get();
+    if (se.state === 'running') await S.eliminate(after, 'سلامت کشور در حمله ' + tname + ' از ' + s.fromName + ' به صفر رسید');
+  }
+}
+
+async function autoDay() {
+  if (!(cfg.dayHours > 0)) return;
+  const se = await S.get();
+  if (se.state === 'running' && se.dayStart && Date.now() - se.dayStart >= cfg.dayHours * 3600000) await S.advanceDay();
+}
+
+async function tick() {
+  await autoDay().catch((e) => console.error('[day]', e.message));
+  const due = await Shipment.find({ status: 'flying', arriveAt: { $lte: new Date() } }).limit(20);
+  for (const s of due) {
+    const l = await Shipment.findOneAndUpdate({ _id: s._id, status: 'flying' }, { $set: { status: 'landing' } }, { new: true });
+    if (!l) continue;
+    try {
+      await land(l);
+    } catch (e) {
+      console.error('[land]', e);
+    }
+  }
+}
+
+function start() {
+  setInterval(() => tick().catch((e) => console.error('[tick]', e.message)), 10000);
+}
+
+module.exports = { start, tick };
