@@ -2,13 +2,8 @@
   "functions": {
     "api/**/*.js": {
       "maxDuration": 60,
-      "includeFiles": "assets/**"
+      "includeFiles": "*.{jpg,jpeg,png}"
     }
   },
-  "crons": [
-    {
-      "path": "/api/cron",
-      "schedule": "0 0 * * *"
-    }
-  ]
+  "crons": [{ "path": "/api/cron", "schedule": "0 0 * * *" }]
 }
