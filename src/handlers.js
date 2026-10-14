@@ -748,10 +748,19 @@ R(
     if (!l.length) return say(u, quote("هنوز کشوری ساخته نشده است."));
     return say(
       u,
-      quote(bold("کشورها")) +
+      quote("کشورها") +
         "\n\n" +
         l
-          .map((c, i) => fa(i + 1) + ". " + mono(c.name) + " ـ " + stateName(c))
+          .map(
+            (c, i) =>
+              fa(i + 1) +
+              ". " +
+              c.name +
+              " ـ " +
+              stateName(c) +
+              "  -  " +
+              c.code,
+          )
           .join("\n"),
     );
   }),
