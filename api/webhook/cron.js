@@ -1,6 +1,6 @@
 'use strict';
-const cfg = require('../src/config');
-const sl = require('../src/serverless');
+const cfg = require('../../src/config');
+const sl = require('../../src/serverless');
 
 // هر بار صدا زده شود: محموله‌های سررسیده و روز خودکار را پردازش می‌کند.
 // با cron-job.org هر ۱ دقیقه این آدرس را صدا بزنید: https://<domain>/api/cron
@@ -8,7 +8,7 @@ module.exports = async (req, res) => {
   const miss = cfg.missing();
   if (miss.length) return res.status(500).json({ error: 'env missing: ' + miss.join(',') });
   try {
-    const { connect, Setting } = require('../src/db');
+    const { connect, Setting } = require('../../src/db');
     await connect();
     const last = await Setting.findOne({ key: 'lastTick' });
     if (last && Date.now() - Number(last.value) < 15000) return res.status(200).json({ ok: true, skipped: true });
