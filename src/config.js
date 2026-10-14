@@ -19,6 +19,14 @@ const cfg = {
   payInfo: (process.env.PAYMENT_INFO || 'برای پرداخت با پشتیبانی هماهنگ کنید.').replace(/[\uE000-\uF8FF]/g, ''),
 };
 
+cfg.missing = () => {
+  const miss = [];
+  if (!cfg.token) miss.push('BOT_TOKEN');
+  if (!cfg.ownerPass) miss.push('OWNER_PASSWORD');
+  if (!cfg.adminPass) miss.push('ADMIN_PASSWORD');
+  return miss;
+};
+
 cfg.check = () => {
   const miss = [];
   if (!cfg.token) miss.push('BOT_TOKEN');

@@ -3,9 +3,9 @@ const cfg = require('./config');
 const rb = require('./rubika');
 const H = require('./handlers');
 const T = require('./text');
+const { Seen } = require('./db');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const seen = new Set();
 
 // پشتیبانی از شکل‌های مختلف آپدیت روبیکا
 function parse(up) {
@@ -13,7 +13,7 @@ function parse(up) {
   const chatId = String(up.chat_id || (up.update && up.update.chat_id) || '');
   if (!chatId) return null;
   if (type === 'StoppedBot') return null;
-  if (type === 'StartedBot') return { chatId, senderId: chatId, text: '/start', msg: { message_id: 'start-' + Date.now() }, key: 'start:' + chatId + ':' + (up.time || Date.now()) };
+  if (type === 'StartedBot') return { chatId, senderId: chatId, text: '/start', msg: { message_id: 'start-' + Date.now() }, key: 'start:' + chatId + ':' + (up.time || Math.floor(Date.now() / 5000)) };
 
   const m = up.new_message || (up.update && up.update.new_message) || (up.text !== undefined ? up : null);
   if (!m) return null;
@@ -26,9 +26,14 @@ function parse(up) {
 
 async function onUpdate(up) {
   const p = parse(up);
-  if (!p || seen.has(p.key)) return;
-  seen.add(p.key);
-  if (seen.size > 5000) seen.delete(seen.values().next().value);
+  if (!p) return;
+  // جلوگیری از پردازش دوباره (تکرار آپدیت در polling یا ارسال دوباره‌ی وب‌هوک)؛ در دیتابیس تا بین چند سرور هم کار کند
+  try {
+    await Seen.create({ key: p.key });
+  } catch (e) {
+    if (e && e.code === 11000) return;
+    throw e;
+  }
 
   console.log('[recv]', p.chatId.slice(0, 6) + '...', JSON.stringify(p.text).slice(0, 40));
   // گروه: g0 ، کانال: c0 ، چت خصوصی با ربات: b0
@@ -61,7 +66,7 @@ async function poll() {
           await onUpdate(up);
         } catch (e) {
           console.error('[update]', e);
-          if (up.chat_id) rb.send(up.chat_id, T.quote('خطایی رخ داد. دوباره تلاش کنید.')).catch(() => {});
+          if (up.chat_id) await rb.send(up.chat_id, T.quote('خطایی رخ داد. دوباره تلاش کنید.')).catch(() => {});
         }
       }
       if (d.next_offset_id) offset = d.next_offset_id;

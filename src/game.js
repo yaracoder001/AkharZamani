@@ -54,7 +54,40 @@ const INCOME = {
   barracks: ["soldiers", 60],
   bank: ["money", 1000],
 };
-const income = (k, l) => Math.round(INCOME[k][1] * (1 + 0.6 * (l - 1)));
+// رده‌ی کشور: عادی | نظامی ویژه (سرباز ۱۰ برابر) | اقتصادی ویژه (منابع ۵ برابر)
+// ضریب‌ها را اینجا عوض کنید. start = ضریب منابع اولیه، income = ضریب درآمد روزانه
+const ECO5 = { money: 5, oil: 5, gold: 5, gas: 5, copper: 5 };
+const TIERS = {
+  normal: { name: "عادی", start: {}, income: {} },
+  military: {
+    name: "نظامی ویژه",
+    start: { soldiers: 10 },
+    income: { soldiers: 10 },
+  },
+  economic: { name: "اقتصادی ویژه", start: ECO5, income: ECO5 },
+};
+const tierOf = (t) => (TIERS[t] ? t : "normal");
+const startRes = (tier) =>
+  Object.fromEntries(
+    Object.entries(START.res).map(([k, v]) => [
+      k,
+      v * (TIERS[tierOf(tier)].start[k] || 1),
+    ]),
+  );
+// مازاد منابع اولیه‌ی یک رده نسبت به عادی (برای وقتی کشوری بعدا ویژه می‌شود)
+const tierBonus = (tier) => {
+  const r = {};
+  for (const [k, m] of Object.entries(TIERS[tierOf(tier)].start))
+    r[k] = START.res[k] * (m - 1);
+  return r;
+};
+
+const income = (k, l, tier) =>
+  Math.round(
+    INCOME[k][1] *
+      (1 + 0.6 * (l - 1)) *
+      (TIERS[tierOf(tier)].income[INCOME[k][0]] || 1),
+  );
 
 const MAXLV = 30;
 const BASE_COST = {
@@ -337,11 +370,11 @@ const shipText = (s, min) =>
   quote(bold("اعلان انتقال محموله")) +
   "\n\n" +
   [
-    "نوع: " + kindName(s),
-    "مبدا: " + s.fromName,
-    "مقصد: " + s.toName,
+    "نوع: " + mono(kindName(s)),
+    "مبدا: " + mono(s.fromName),
+    "مقصد: " + mono(s.toName),
     "کد رهگیری: " + mono(s.code),
-    "زمان تقریبی رسیدن: " + (fa(min) + " دقیقه"),
+    "زمان تقریبی رسیدن: " + mono(fa(min) + " دقیقه"),
   ].join("\n") +
   "\n\n" +
   quote(
@@ -355,6 +388,10 @@ module.exports = {
   START,
   INCOME,
   income,
+  TIERS,
+  tierOf,
+  startRes,
+  tierBonus,
   MAXLV,
   upCost,
   UNIT_COST,

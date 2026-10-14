@@ -89,6 +89,8 @@ async function autoDay() {
 
 async function tick() {
   await autoDay().catch((e) => console.error('[day]', e.message));
+  // اگر تابع وسط رسیدن محموله متوقف شده باشد (مثلا timeout در Vercel)، محموله دوباره بررسی می‌شود
+  await Shipment.updateMany({ status: 'landing', updatedAt: { $lt: new Date(Date.now() - 120000) } }, { $set: { status: 'flying' } }).catch(() => {});
   const due = await Shipment.find({ status: 'flying', arriveAt: { $lte: new Date() } }).limit(20);
   for (const s of due) {
     const l = await Shipment.findOneAndUpdate({ _id: s._id, status: 'flying' }, { $set: { status: 'landing' } }, { new: true });

@@ -69,6 +69,24 @@ async function send(chatId, content, rows) {
 
 // ارسال عکس از ریشه‌ی پروژه (name بدون پسوند؛ jpg/jpeg/png). اگر عکس نبود فقط متن ارسال می‌شود.
 const fileIds = new Map();
+// شناسه‌ی فایل‌های آپلودشده در دیتابیس هم ذخیره می‌شود تا در Vercel هر بار دوباره آپلود نشود
+const fidKey = (name) => 'fileid:' + name;
+async function loadId(name) {
+  if (fileIds.has(name)) return fileIds.get(name);
+  try {
+    const s = await require('./db').Setting.findOne({ key: fidKey(name) });
+    if (s && s.value) { fileIds.set(name, s.value); return s.value; }
+  } catch (e) { /* بدون دیتابیس هم کار می‌کند */ }
+  return null;
+}
+async function saveId(name, id) {
+  fileIds.set(name, id);
+  try { await require('./db').Setting.updateOne({ key: fidKey(name) }, { $set: { value: id } }, { upsert: true }); } catch (e) { /* ignore */ }
+}
+async function dropId(name) {
+  fileIds.delete(name);
+  try { await require('./db').Setting.deleteOne({ key: fidKey(name) }); } catch (e) { /* ignore */ }
+}
 function findImage(name) {
   for (const ext of ['jpg', 'jpeg', 'png']) {
     const f = path.join(__dirname, '..', `${name}.${ext}`);
@@ -81,7 +99,7 @@ async function sendImage(chatId, name, caption) {
   const file = findImage(name);
   if (!file) return send(chatId, caption);
   try {
-    let id = fileIds.get(name);
+    let id = await loadId(name);
     if (!id) {
       const a = await call('requestSendFile', { type: 'Image' });
       const url = a.data && a.data.upload_url;
@@ -91,22 +109,22 @@ async function sendImage(chatId, name, caption) {
       const up = await (await fetch(url, { method: 'POST', body: fd })).json();
       id = up.data && up.data.file_id;
       if (!id) throw new Error('file_id missing');
-      fileIds.set(name, id);
+      await saveId(name, id);
     }
     const msgs = style.build(caption, 1000);
     if (msgs.length === 1) {
       const r = await post('sendFile', { chat_id: chatId, file_id: id }, msgs[0]);
       if (r.status === 'OK') return r;
-      fileIds.delete(name);
+      await dropId(name);
     } else {
       // کپشن طولانی: عکس بدون کپشن، سپس متن کامل
       const r = await call('sendFile', { chat_id: chatId, file_id: id });
       if (r.status === 'OK') return send(chatId, caption);
-      fileIds.delete(name);
+      await dropId(name);
     }
   } catch (e) {
     console.error('[image]', e.message);
-    fileIds.delete(name);
+    await dropId(name);
   }
   return send(chatId, caption);
 }

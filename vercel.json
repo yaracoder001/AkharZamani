@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "api/**/*.js": {
+      "maxDuration": 60,
+      "includeFiles": "*.{jpg,jpeg,png}"
+    }
+  },
+  "crons": [{ "path": "/api/cron", "schedule": "0 0 * * *" }]
+}

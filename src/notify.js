@@ -31,13 +31,13 @@ async function dm(userId, text) {
 }
 
 // ارسال همگانی (پشت‌صحنه، با فاصله برای جلوگیری از محدودیت)
-function broadcast(users, text) {
-  (async () => {
-    for (const u of users) {
-      if (u.chatId) await rb.send(u.chatId, text).catch(() => {});
-      await sleep(80);
-    }
-  })();
+// باید await شود (در Vercel بعد از پایان درخواست کاری اجرا نمی‌شود). دسته‌های ۱۰ تایی موازی.
+async function broadcast(users, text) {
+  const list = users.filter((u) => u.chatId);
+  for (let i = 0; i < list.length; i += 10) {
+    await Promise.all(list.slice(i, i + 10).map((u) => rb.send(u.chatId, text).catch(() => {})));
+    if (i + 10 < list.length) await sleep(150);
+  }
 }
 
 module.exports = { announce, dm, broadcast, groupId };

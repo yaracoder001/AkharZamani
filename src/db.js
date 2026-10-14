@@ -10,6 +10,8 @@ const User = model(
   new Schema(
     {
       userId: { type: String, unique: true },
+      pwFails: n(), // تلاش ناموفق ورود به پنل
+      pwLock: n(), // زمان پایان قفل ورود (میلی‌ثانیه)
       chatId: String,
       name: String,
       username: String,
@@ -36,6 +38,7 @@ const Country = model(
       ownerId: { type: String, default: null },
       status: { type: String, default: 'active' }, // active | destroyed
       hp: n(100), // سلامت کشور؛ صفر شدن = حذف تیم
+      tier: { type: String, default: 'normal' }, // normal | military | economic
       res: { money: n(), oil: n(), gold: n(), gas: n(), copper: n(), soldiers: n() },
       units: { tank: n(), fighter: n(), drone: n(), missile: n(), ship: n(), sub: n() },
       lv: {
@@ -100,4 +103,23 @@ const Setting = model(
   new Schema({ key: { type: String, unique: true }, value: String })
 );
 
-module.exports = { User, Country, Pack, Order, Shipment, Setting };
+// پیام‌های پردازش‌شده (جلوگیری از پردازش دوباره‌ی آپدیت تکراری؛ خودکار بعد از ۲ ساعت پاک می‌شود)
+const Seen = model('Seen', new Schema({ key: { type: String, unique: true }, at: { type: Date, default: Date.now, expires: 7200 } }));
+
+// اتصال مشترک به مونگو؛ در Vercel بین درخواست‌ها نگه داشته می‌شود
+let connecting = null;
+async function connect() {
+  const c = mongoose.connection;
+  if (c && c.readyState === 1) return;
+  if (!connecting) {
+    connecting = mongoose
+      .connect(require('./config').mongo, { serverSelectionTimeoutMS: 8000, maxPoolSize: 5 })
+      .catch((e) => {
+        connecting = null;
+        throw e;
+      });
+  }
+  await connecting;
+}
+
+module.exports = { User, Country, Pack, Order, Shipment, Setting, Seen, connect };
