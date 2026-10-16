@@ -85,7 +85,8 @@ async function refreshProfile(u) {
 const PAGE = 12;
 const pickActs = {};
 const LEVEL = { O: O, A: A, P: P };
-const can = (u, lv) => (lv === "O" ? u.isOwner : lv === "A" ? u.isOwner || u.isAdmin : !!u.countryId);
+const can = (u, lv) =>
+  lv === "O" ? u.isOwner : lv === "A" ? u.isOwner || u.isAdmin : !!u.countryId;
 
 // act: شناسه‌ی عملیات | label: نام دکمه‌ی منو | level: O مدیریت اصلی، A ادمین یا مدیریت، P بازیکن
 // filter(u, mine): شرط پیدا کردن کشورهای قابل انتخاب | pre(u, mine): پیام مسدودکننده (اختیاری)
@@ -101,7 +102,13 @@ function PICK(act, label, { level, title, filter, pre, then }) {
         const blk = await pre(u, mine);
         if (blk) return say(u, blk);
       }
-      return askK(u, "pick_mode", quote(bold(title), "روش انتخاب کشور را بزنید."), M.pickMode, { act });
+      return askK(
+        u,
+        "pick_mode",
+        quote(bold(title), "روش انتخاب کشور را بزنید."),
+        M.pickMode,
+        { act },
+      );
     }),
   );
 }
@@ -120,7 +127,9 @@ async function pickCtx(u) {
 }
 
 async function showPickList(u, ctx, page) {
-  const names = (await Country.find(ctx.query).sort({ createdAt: 1 }).limit(300)).map((c) => c.name);
+  const names = (
+    await Country.find(ctx.query).sort({ createdAt: 1 }).limit(300)
+  ).map((c) => c.name);
   if (!names.length) return home(u, quote("کشوری برای انتخاب وجود ندارد."));
   const pages = Math.ceil(names.length / PAGE);
   const pg = Math.min(Math.max(0, page), pages - 1);
@@ -135,7 +144,17 @@ async function showPickList(u, ctx, page) {
   return askK(
     u,
     "pick_list",
-    quote(bold(ctx.a.title), "یکی از کشورها را بزنید.", "صفحه " + fa(pg + 1) + " از " + fa(pages) + " ـ " + fa(names.length) + " کشور"),
+    quote(
+      bold(ctx.a.title),
+      "یکی از کشورها را بزنید.",
+      "صفحه " +
+        fa(pg + 1) +
+        " از " +
+        fa(pages) +
+        " ـ " +
+        fa(names.length) +
+        " کشور",
+    ),
     rows,
     { act: ctx.d.act, page: pg },
   );
@@ -149,16 +168,34 @@ steps.pick_mode = async (u, t) => {
   const ctx = await pickCtx(u);
   if (!ctx) return;
   if (t === "تایپی")
-    return askK(u, "pick_type", quote(bold(ctx.a.title), "نام کشور را تایپ کنید."), M.back, { act: ctx.d.act });
+    return askK(
+      u,
+      "pick_type",
+      quote(bold(ctx.a.title), "نام کشور را تایپ کنید."),
+      M.back,
+      { act: ctx.d.act },
+    );
   if (t === "انتخاب از لیست") return showPickList(u, ctx, 0);
-  return askK(u, "pick_mode", quote("یکی از گزینه‌ها را انتخاب کنید."), M.pickMode, { act: ctx.d.act });
+  return askK(
+    u,
+    "pick_mode",
+    quote("یکی از گزینه‌ها را انتخاب کنید."),
+    M.pickMode,
+    { act: ctx.d.act },
+  );
 };
 steps.pick_type = async (u, t) => {
   const ctx = await pickCtx(u);
   if (!ctx) return;
   const c = await Country.findOne({ ...ctx.query, name: T.norm(t) });
   if (!c)
-    return askK(u, "pick_type", quote("کشوری با این نام پیدا نشد. دوباره تایپ کنید."), M.back, { act: ctx.d.act });
+    return askK(
+      u,
+      "pick_type",
+      quote("کشوری با این نام پیدا نشد. دوباره تایپ کنید."),
+      M.back,
+      { act: ctx.d.act },
+    );
   return pickDone(u, ctx, c);
 };
 steps.pick_list = async (u, t) => {
@@ -495,7 +532,9 @@ PICK("atk", "حمله", {
   pre: async () => attackBlock(),
   filter: (u, c) => targetsOf(c),
   then: (u, to) =>
-    askK(u, "atk_type", quote("نوع حمله را انتخاب کنید."), M.types, { to: String(to._id) }),
+    askK(u, "atk_type", quote("نوع حمله را انتخاب کنید."), M.types, {
+      to: String(to._id),
+    }),
 });
 steps.atk_type = P(async (u, c, t) => {
   const type = { زمینی: "ground", هوایی: "air", دریایی: "naval" }[t];
@@ -653,14 +692,21 @@ steps.shoot = P(async (u, c, t) => {
 const photoOf = (m) => {
   const f = m && m.file;
   if (!f || !f.file_id) return null;
-  return !f.file_name || /\.(jpe?g|png|webp|gif)$/i.test(f.file_name) ? String(f.file_id) : null;
+  return !f.file_name || /\.(jpe?g|png|webp|gif)$/i.test(f.file_name)
+    ? String(f.file_id)
+    : null;
 };
 
 R(
   "ارسال بیانیه",
   P(async (u, c) => {
     if (!(await N.statementId()))
-      return say(u, quote("گروه بیانیه‌ها هنوز تنظیم نشده است. مدیریت باید از «کانال و گروه» آن را ثبت کند."));
+      return say(
+        u,
+        quote(
+          "گروه بیانیه‌ها هنوز تنظیم نشده است. مدیریت باید از «کانال و گروه» آن را ثبت کند.",
+        ),
+      );
     if (c.lastStatement && Date.now() - c.lastStatement.getTime() < 300000)
       return say(u, quote("هر ۵ دقیقه یک بیانیه مجاز است."));
     return ask(u, "stmt", quote("متن بیانیه را ارسال کنید (حداکثر ۷۰۰ حرف)."));
@@ -669,18 +715,38 @@ R(
 steps.stmt = P(async (u, c, t, m) => {
   const body = T.safeMulti(m.text).slice(0, 700);
   if (body.length < 3) return ask(u, "stmt", quote("متن بیانیه کوتاه است."));
-  return askK(u, "stmt_photo", quote("بیانیه همراه عکس ارسال شود؟"), M.photoAsk, { body });
+  return askK(
+    u,
+    "stmt_photo",
+    quote("بیانیه همراه عکس ارسال شود؟"),
+    M.photoAsk,
+    { body },
+  );
 });
 steps.stmt_photo = P(async (u, c, t) => {
   const d = u.state.data;
-  if (t === "با عکس") return askK(u, "stmt_img", quote("عکس را ارسال کنید."), M.back, d);
+  if (t === "با عکس")
+    return askK(u, "stmt_img", quote("عکس را ارسال کنید."), M.back, d);
   if (t === "بدون عکس") return sendStatement(u, c, d.body, null);
-  return askK(u, "stmt_photo", quote("یکی از گزینه‌ها را انتخاب کنید."), M.photoAsk, d);
+  return askK(
+    u,
+    "stmt_photo",
+    quote("یکی از گزینه‌ها را انتخاب کنید."),
+    M.photoAsk,
+    d,
+  );
 });
 steps.stmt_img = P(async (u, c, t, m) => {
   const d = u.state.data;
   const f = photoOf(m);
-  if (!f) return askK(u, "stmt_img", quote("عکس معتبر نیست. یک عکس بفرستید."), M.back, d);
+  if (!f)
+    return askK(
+      u,
+      "stmt_img",
+      quote("عکس معتبر نیست. یک عکس بفرستید."),
+      M.back,
+      d,
+    );
   return sendStatement(u, c, d.body, f);
 });
 async function sendStatement(u, c, body, fileId) {
@@ -689,14 +755,26 @@ async function sendStatement(u, c, body, fileId) {
     ? T.link("@" + u.username, "https://rubika.ir/" + u.username)
     : mono(u.name || "ناشناس") + " ـ شناسه: " + mono(u.userId);
   const r = await N.statement(
-    bold("بیانیه رسمی کشور " + c.name) + "\n\n" + quote(body) + "\n\nارسال‌کننده: " + who,
+    bold("بیانیه رسمی کشور " + c.name) +
+      "\n\n" +
+      quote(body) +
+      "\n\nارسال‌کننده: " +
+      who,
     { fileId },
   );
-  if (!r.ok) return home(u, quote("ارسال بیانیه ممکن نشد. به مدیریت خبر بدهید."));
-  await Country.updateOne({ _id: c._id }, { $set: { lastStatement: new Date() } });
+  if (!r.ok)
+    return home(u, quote("ارسال بیانیه ممکن نشد. به مدیریت خبر بدهید."));
+  await Country.updateOne(
+    { _id: c._id },
+    { $set: { lastStatement: new Date() } },
+  );
   return home(
     u,
-    quote(fileId && !r.photo ? "بیانیه ارسال شد، اما ارسال عکس ممکن نشد و فقط متن رفت." : "بیانیه ارسال شد."),
+    quote(
+      fileId && !r.photo
+        ? "بیانیه ارسال شد، اما ارسال عکس ممکن نشد و فقط متن رفت."
+        : "بیانیه ارسال شد.",
+    ),
   );
 }
 
@@ -806,23 +884,25 @@ R(
   A(async (u) => {
     const l = await Country.find();
     if (!l.length) return say(u, quote("هنوز کشوری ساخته نشده است."));
-    const row = (c, i) =>
-      fa(i + 1) +
-      ". " +
-      mono(c.name) +
-      " ـ " +
-      stateName(c) +
-      (u.isOwner ? "\n    کد: " + mono(c.code) : "")
-    return say(
-      u,
-      quote(bold(u.isOwner ? "کشورها و کدها" : "کشورها")) + "\n\n" + l.map(row).join("\n"),
-    );
+
+    let text = quote(bold(u.isOwner ? "کشورها و کدها" : "کشورها")) + "\n\n";
+
+    for (let i = 0; i < l.length; i++) {
+      const c = l[i];
+      text += fa(i + 1) + ". " + mono(c.name) + " ـ " + stateName(c);
+      if (u.isOwner) {
+        text += "\n    کد: " + mono(c.code);
+      }
+      text += "\n";
+    }
+    return say(u, text);
   }),
 );
 PICK("info", "اطلاعات کشور", {
   level: "A",
   title: "اطلاعات کشور",
-  then: (u, c) => home(u, G.statusText(c) + "\n\n" + quote("وضعیت: " + stateName(c))),
+  then: (u, c) =>
+    home(u, G.statusText(c) + "\n\n" + quote("وضعیت: " + stateName(c))),
 });
 
 // دریافت کد ورود کشور (مدیریت اصلی و ادمین)
@@ -833,9 +913,12 @@ PICK("getcode", "دریافت کد کشور", {
     home(
       u,
       bold("کد ورود کشور") +
-        "\n\nنام: " + mono(c.name) +
-        "\nکد: " + mono(c.code) +
-        "\n\n" + quote("وضعیت: " + stateName(c)),
+        "\n\nنام: " +
+        mono(c.name) +
+        "\nکد: " +
+        mono(c.code) +
+        "\n\n" +
+        quote("وضعیت: " + stateName(c)),
     ),
 });
 
@@ -847,7 +930,9 @@ PICK("destroy", "نابودی کشور", {
   title: "نابودی کشور",
   filter: () => ({ status: "active" }),
   then: (u, c) =>
-    askK(u, "ds_ok", quote("کشور " + mono(c.name) + " نابود شود؟"), M.yes, { id: String(c._id) }),
+    askK(u, "ds_ok", quote("کشور " + mono(c.name) + " نابود شود؟"), M.yes, {
+      id: String(c._id),
+    }),
 });
 steps.ds_ok = O(async (u, t) => {
   if (t !== "بله") return home(u, quote("لغو شد."));
@@ -1011,8 +1096,10 @@ PICK("release", "آزادسازی کشور", {
     return home(
       u,
       quote(bold("کشور آزاد شد")) +
-        "\nنام: " + mono(c.name) +
-        "\nکد جدید: " + mono(set.code),
+        "\nنام: " +
+        mono(c.name) +
+        "\nکد جدید: " +
+        mono(set.code),
     );
   },
 });
@@ -1458,39 +1545,88 @@ const DEST_NAME = { channel: "کانال", group: "گروه" };
 
 R(
   "ارسال به کانال/گروه",
-  A((u) => askK(u, "pub_dest", quote(bold("ارسال پیام"), "مقصد را انتخاب کنید."), M.dest, {})),
+  A((u) =>
+    askK(
+      u,
+      "pub_dest",
+      quote(bold("ارسال پیام"), "مقصد را انتخاب کنید."),
+      M.dest,
+      {},
+    ),
+  ),
 );
 steps.pub_dest = A(async (u, t) => {
   const dest = DEST[t];
-  if (!dest) return askK(u, "pub_dest", quote("یکی از گزینه‌ها را انتخاب کنید."), M.dest, {});
+  if (!dest)
+    return askK(
+      u,
+      "pub_dest",
+      quote("یکی از گزینه‌ها را انتخاب کنید."),
+      M.dest,
+      {},
+    );
   const miss = [];
-  if ((dest === "channel" || dest === "both") && !(await N.channelId())) miss.push("کانال");
-  if ((dest === "group" || dest === "both") && !(await N.groupChatId())) miss.push("گروه");
+  if ((dest === "channel" || dest === "both") && !(await N.channelId()))
+    miss.push("کانال");
+  if ((dest === "group" || dest === "both") && !(await N.groupChatId()))
+    miss.push("گروه");
   if (miss.length)
-    return home(u, quote("آیدی " + miss.join(" و ") + " هنوز ثبت نشده است. مدیریت اصلی از «کانال و گروه» آن را ثبت کند."));
+    return home(
+      u,
+      quote(
+        "آیدی " +
+          miss.join(" و ") +
+          " هنوز ثبت نشده است. مدیریت اصلی از «کانال و گروه» آن را ثبت کند.",
+      ),
+    );
   return ask(u, "pub_text", quote("متن پیام را ارسال کنید."), { dest });
 });
 steps.pub_text = A(async (u, t, m) => {
   const body = T.safeMulti(m.text).slice(0, 3000);
-  if (body.length < 2) return ask(u, "pub_text", quote("متن خالی است."), u.state.data);
-  return askK(u, "pub_photo", quote("پیام همراه عکس ارسال شود؟"), M.photoAsk, { ...u.state.data, body });
+  if (body.length < 2)
+    return ask(u, "pub_text", quote("متن خالی است."), u.state.data);
+  return askK(u, "pub_photo", quote("پیام همراه عکس ارسال شود؟"), M.photoAsk, {
+    ...u.state.data,
+    body,
+  });
 });
 steps.pub_photo = A(async (u, t) => {
   const d = u.state.data;
-  if (t === "با عکس") return askK(u, "pub_img", quote("عکس را ارسال کنید."), M.back, d);
+  if (t === "با عکس")
+    return askK(u, "pub_img", quote("عکس را ارسال کنید."), M.back, d);
   if (t === "بدون عکس") return doPublish(u, d, null);
-  return askK(u, "pub_photo", quote("یکی از گزینه‌ها را انتخاب کنید."), M.photoAsk, d);
+  return askK(
+    u,
+    "pub_photo",
+    quote("یکی از گزینه‌ها را انتخاب کنید."),
+    M.photoAsk,
+    d,
+  );
 });
 steps.pub_img = A(async (u, t, m) => {
   const d = u.state.data;
   const f = photoOf(m);
-  if (!f) return askK(u, "pub_img", quote("عکس معتبر نیست. یک عکس بفرستید."), M.back, d);
+  if (!f)
+    return askK(
+      u,
+      "pub_img",
+      quote("عکس معتبر نیست. یک عکس بفرستید."),
+      M.back,
+      d,
+    );
   return doPublish(u, d, f);
 });
 async function doPublish(u, d, fileId) {
   const r = await N.publish(d.dest, d.body, { fileId });
   const lines = Object.entries(r).map(
-    ([k, v]) => DEST_NAME[k] + ": " + (v.ok ? (fileId && !v.photo ? "ارسال شد (بدون عکس)" : "ارسال شد") : "ناموفق"),
+    ([k, v]) =>
+      DEST_NAME[k] +
+      ": " +
+      (v.ok
+        ? fileId && !v.photo
+          ? "ارسال شد (بدون عکس)"
+          : "ارسال شد"
+        : "ناموفق"),
   );
   return home(u, quote(bold("نتیجه ارسال"), ...lines));
 }
@@ -1512,18 +1648,39 @@ async function chatSettingsText() {
     )
   );
 }
-R("کانال و گروه", O(async (u) => say(u, await chatSettingsText(), M.chatSet)));
-R("مشاهده تنظیمات", O(async (u) => say(u, await chatSettingsText(), M.chatSet)));
+R(
+  "کانال و گروه",
+  O(async (u) => say(u, await chatSettingsText(), M.chatSet)),
+);
+R(
+  "مشاهده تنظیمات",
+  O(async (u) => say(u, await chatSettingsText(), M.chatSet)),
+);
 R(
   "آیدی کانال",
   O((u) =>
-    ask(u, "set_channel", quote("آیدی چت کانال را ارسال کنید.", "برای حذف کلمه‌ی «حذف» را بفرستید.")),
+    ask(
+      u,
+      "set_channel",
+      quote(
+        "آیدی چت کانال را ارسال کنید.",
+        "برای حذف کلمه‌ی «حذف» را بفرستید.",
+      ),
+    ),
   ),
 );
 R(
   "آیدی گروه",
   O((u) =>
-    ask(u, "set_group", quote("آیدی چت گروه را ارسال کنید.", "برای حذف کلمه‌ی «حذف» را بفرستید.", "یا داخل گروه بنویسید: ثبت گروه")),
+    ask(
+      u,
+      "set_group",
+      quote(
+        "آیدی چت گروه را ارسال کنید.",
+        "برای حذف کلمه‌ی «حذف» را بفرستید.",
+        "یا داخل گروه بنویسید: ثبت گروه",
+      ),
+    ),
   ),
 );
 const setChatStep = (kind) =>
@@ -1534,13 +1691,25 @@ const setChatStep = (kind) =>
       await N.setChat(kind, null);
       return say(u, quote("آیدی " + name + " حذف شد."), M.chatSet);
     }
-    if (!/^[A-Za-z0-9_]{6,64}$/.test(id)) return ask(u, "set_" + kind, quote("آیدی نامعتبر است. دوباره ارسال کنید."));
+    if (!/^[A-Za-z0-9_]{6,64}$/.test(id))
+      return ask(
+        u,
+        "set_" + kind,
+        quote("آیدی نامعتبر است. دوباره ارسال کنید."),
+      );
     await N.setChat(kind, id);
     const info = await rb.getChat(id).catch(() => ({}));
-    const title = info && info.data && info.data.chat && (info.data.chat.title || info.data.chat.first_name);
+    const title =
+      info &&
+      info.data &&
+      info.data.chat &&
+      (info.data.chat.title || info.data.chat.first_name);
     return say(
       u,
-      quote("آیدی " + name + " ثبت شد.") + "\n" + chatLine(name, id) + (title ? "\nنام: " + mono(title) : ""),
+      quote("آیدی " + name + " ثبت شد.") +
+        "\n" +
+        chatLine(name, id) +
+        (title ? "\nنام: " + mono(title) : ""),
       M.chatSet,
     );
   });
