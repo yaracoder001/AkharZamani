@@ -884,18 +884,20 @@ R(
   A(async (u) => {
     const l = await Country.find();
     if (!l.length) return say(u, quote("هنوز کشوری ساخته نشده است."));
-
-    let text = quote(bold(u.isOwner ? "کشورها و کدها" : "کشورها")) + "\n\n";
-
-    for (let i = 0; i < l.length; i++) {
-      const c = l[i];
-      text += fa(i + 1) + ". " + mono(c.name) + " ـ " + stateName(c);
-      if (u.isOwner) {
-        text += "\n    کد: " + mono(c.code);
+    const isOwner = u.isOwner;
+    const title = bold(isOwner ? "کشورها و کدها" : "کشورها");
+    const chunkSize = 60;
+    for (let start = 0; start < l.length; start += chunkSize) {
+      const end = Math.min(start + chunkSize, l.length);
+      let text = title + ` (${fa(start + 1)} تا ${fa(end)})\n\n`;
+      for (let i = start; i < end; i++) {
+        const c = l[i];
+        text += fa(i + 1) + ". " + mono(c.name) + " ـ " + stateName(c);
+        if (isOwner) text += " | " + mono(c.code);
+        text += "\n";
       }
-      text += "\n";
+      await say(u, text);
     }
-    return say(u, text);
   }),
 );
 PICK("info", "اطلاعات کشور", {
