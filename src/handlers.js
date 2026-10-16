@@ -804,7 +804,7 @@ const stateName = (c) =>
 R(
   "لیست کشورها",
   A(async (u) => {
-    const l = await Country.find().sort({ createdAt: 1 });
+    const l = await Country.find();
     if (!l.length) return say(u, quote("هنوز کشوری ساخته نشده است."));
     const row = (c, i) =>
       fa(i + 1) +
