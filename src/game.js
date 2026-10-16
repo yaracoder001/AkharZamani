@@ -1,6 +1,7 @@
 "use strict";
 // قوانین بازی: منابع، ارتقاء، نیروها، نبرد و پک‌ها
 const T = require("./text");
+const { withFlag } = require("./countries");
 const { Country } = require("./db");
 const { fa, mono, bold, quote } = T;
 
@@ -54,17 +55,23 @@ const INCOME = {
   barracks: ["soldiers", 60],
   bank: ["money", 1000],
 };
-// رده‌ی کشور: عادی | نظامی ویژه (سرباز ۱۰ برابر) | اقتصادی ویژه (منابع ۵ برابر)
-// ضریب‌ها را اینجا عوض کنید. start = ضریب منابع اولیه، income = ضریب درآمد روزانه
+// رده‌ی کشور: عادی | نظامی ویژه | اقتصادی ویژه
+// start = ضریب منابع اولیه، income = ضریب درآمد روزانه، lv = سطح‌های اضافه‌ی اولیه نسبت به کشور عادی
+//   نظامی ویژه: سرباز ۱۰ برابر | هر سه پدافند ۵ سطح بالاتر | پادگان (بخش نظامی) ۲ سطح بالاتر
+//   اقتصادی ویژه: پول، نفت، طلا، گاز و مس ۵ برابر (بدون هیچ تغییر دیگر)
+// موشک و سایر نیروها برای هیچ رده‌ای اضافه نمی‌شود (عدد MIL_UNITS برای تنظیم دستی است).
 const ECO5 = { money: 5, oil: 5, gold: 5, gas: 5, copper: 5 };
 const TIERS = {
-  normal: { name: "عادی", start: {}, income: {} },
+  normal: { name: "عادی", start: {}, income: {}, lv: {}, units: {} },
   military: {
     name: "نظامی ویژه",
     start: { soldiers: 10 },
-    income: { soldiers: 10 },
+    // پادگان ۲ سطح بالاتر درآمد سرباز را ۲٫۲ برابر می‌کند؛ پس ضریب ۴٫۵ یعنی درآمد سرباز در کل حدود ۱۰ برابر عادی
+    income: { soldiers: 4.5 },
+    lv: { airDef: 5, groundDef: 5, navalDef: 5, barracks: 2 },
+    units: {}, // مثال: { missile: 20 }
   },
-  economic: { name: "اقتصادی ویژه", start: ECO5, income: ECO5 },
+  economic: { name: "اقتصادی ویژه", start: ECO5, income: ECO5, lv: {}, units: {} },
 };
 const tierOf = (t) => (TIERS[t] ? t : "normal");
 const startRes = (tier) =>
@@ -74,13 +81,41 @@ const startRes = (tier) =>
       v * (TIERS[tierOf(tier)].start[k] || 1),
     ]),
   );
-// مازاد منابع اولیه‌ی یک رده نسبت به عادی (برای وقتی کشوری بعدا ویژه می‌شود)
+// سطح زیرساخت‌ها در شروع بازی (پایه + اضافه‌ی رده)
+const BASE_LV = {
+  oilMine: 1, goldMine: 1, gasMine: 1, copperMine: 1,
+  barracks: 1, bank: 1, airDef: 0, groundDef: 0, navalDef: 0,
+};
+const startLv = (tier) => {
+  const add = TIERS[tierOf(tier)].lv || {};
+  return Object.fromEntries(
+    Object.entries(BASE_LV).map(([k, v]) => [k, v + (add[k] || 0)]),
+  );
+};
+const startUnits = (tier) => {
+  const add = TIERS[tierOf(tier)].units || {};
+  return Object.fromEntries(
+    Object.entries(START.units).map(([k, v]) => [k, v + (add[k] || 0)]),
+  );
+};
+// وضعیت کامل اولیه‌ی یک کشور بر اساس رده‌اش (برای ساخت کشور، آزادسازی و شروع فصل)
+const freshState = (tier) => ({
+  res: startRes(tier),
+  units: startUnits(tier),
+  lv: startLv(tier),
+  hp: HP_MAX,
+  lastClaim: new Date(),
+  lastStatement: null,
+});
+// مازاد منابع/سطح/نیروی اولیه‌ی یک رده نسبت به عادی (برای وقتی کشوری بعدا ویژه می‌شود)
 const tierBonus = (tier) => {
   const r = {};
   for (const [k, m] of Object.entries(TIERS[tierOf(tier)].start))
     r[k] = START.res[k] * (m - 1);
   return r;
 };
+const tierBonusLv = (tier) => ({ ...(TIERS[tierOf(tier)].lv || {}) });
+const tierBonusUnits = (tier) => ({ ...(TIERS[tierOf(tier)].units || {}) });
 
 const income = (k, l, tier) =>
   Math.round(
@@ -391,7 +426,7 @@ const CATS = {
 // ---------- متن‌ها ----------
 function statusText(c) {
   const l = [
-    bold("وضعیت کشور") + " " + c.name,
+    bold("وضعیت کشور") + " " + withFlag(c.name),
     "",
     bold("جان کشور (برحسب موشک)"),
     quote(
@@ -425,7 +460,7 @@ function statusText(c) {
     bold("درآمد روزانه"),
     quote(
       Object.keys(INCOME)
-        .map((k) => RES[INCOME[k][0]] + ": " + fa(income(k, c.lv[k])))
+        .map((k) => RES[INCOME[k][0]] + ": " + fa(income(k, c.lv[k], c.tier)))
         .join("\n"),
     ),
   ];
@@ -440,8 +475,8 @@ const shipText = (s, min) =>
   "\n\n" +
   [
     "نوع: " + mono(kindName(s)),
-    "مبدا: " + mono(s.fromName),
-    "مقصد: " + mono(s.toName),
+    "مبدا: " + mono(withFlag(s.fromName)),
+    "مقصد: " + mono(withFlag(s.toName)),
     "کد رهگیری: " + mono(s.code),
     "زمان تقریبی رسیدن: " + mono(fa(min) + " دقیقه"),
   ].join("\n") +
@@ -461,6 +496,12 @@ module.exports = {
   tierOf,
   startRes,
   tierBonus,
+  tierBonusLv,
+  tierBonusUnits,
+  BASE_LV,
+  startLv,
+  startUnits,
+  freshState,
   MAXLV,
   upCost,
   UNIT_COST,

@@ -29,6 +29,19 @@ async function statementId() {
 // برای سازگاری با کدهای قبلی
 const groupId = channelId;
 
+// لینک کانال/گروه (گروه‌ها آیدی عمومی ندارند؛ فقط لینک دعوت دارند)
+const LINK_KEYS = { channel: 'announce_link', group: 'group_link' };
+async function getLink(kind) {
+  return LINK_KEYS[kind] ? getSetting(LINK_KEYS[kind]) : '';
+}
+async function setLink(kind, link) {
+  const key = LINK_KEYS[kind];
+  if (!key) return false;
+  if (!link) await Setting.deleteOne({ key });
+  else await Setting.updateOne({ key }, { $set: { value: String(link) } }, { upsert: true });
+  return true;
+}
+
 async function setChat(kind, id) {
   const key = KEYS[kind];
   if (!key) return false;
@@ -97,4 +110,4 @@ async function broadcast(users, text) {
   }
 }
 
-module.exports = { announce, dm, broadcast, groupId, channelId, groupChatId, statementId, statement, publish, sendTo, setChat };
+module.exports = { announce, dm, broadcast, groupId, channelId, groupChatId, statementId, statement, publish, sendTo, setChat, getLink, setLink };

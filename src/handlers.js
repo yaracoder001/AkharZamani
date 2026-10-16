@@ -6,7 +6,7 @@ const T = require("./text");
 const G = require("./game");
 const N = require("./notify");
 const S = require("./season");
-const { COUNTRIES } = require("./countries");
+const { COUNTRIES, withFlag } = require("./countries");
 const M = require("./menus");
 const { User, Country, Pack, Order, Shipment, Setting } = require("./db");
 const { fa, mono, bold, quote } = T;
@@ -84,6 +84,10 @@ async function refreshProfile(u) {
 // با ۱۰۰ کشور، هر بخشی که نام کشور می‌خواهد دو حالت دارد: نام را تایپ کنید، یا از کیبوردِ لیست (صفحه‌به‌صفحه) بزنید.
 const PAGE = 12;
 const pickActs = {};
+// نام کشور از متن کاربر یا دکمه (با پرچم یا بدون پرچم)
+const findByName = async (query, t) =>
+  (await Country.findOne({ ...query, name: T.norm(t) })) ||
+  (await Country.findOne({ ...query, name: T.noEmoji(t) }));
 const LEVEL = { O: O, A: A, P: P };
 const can = (u, lv) =>
   lv === "O" ? u.isOwner : lv === "A" ? u.isOwner || u.isAdmin : !!u.countryId;
@@ -133,7 +137,7 @@ async function showPickList(u, ctx, page) {
   if (!names.length) return home(u, quote("کشوری برای انتخاب وجود ندارد."));
   const pages = Math.ceil(names.length / PAGE);
   const pg = Math.min(Math.max(0, page), pages - 1);
-  const slice = names.slice(pg * PAGE, pg * PAGE + PAGE);
+  const slice = names.slice(pg * PAGE, pg * PAGE + PAGE).map(withFlag);
   const rows = [];
   for (let i = 0; i < slice.length; i += 3) rows.push(slice.slice(i, i + 3));
   const nav = [];
@@ -187,7 +191,7 @@ steps.pick_mode = async (u, t) => {
 steps.pick_type = async (u, t) => {
   const ctx = await pickCtx(u);
   if (!ctx) return;
-  const c = await Country.findOne({ ...ctx.query, name: T.norm(t) });
+  const c = await findByName(ctx.query, t);
   if (!c)
     return askK(
       u,
@@ -204,7 +208,7 @@ steps.pick_list = async (u, t) => {
   const pg = Number(ctx.d.page) || 0;
   if (t === "صفحه بعد") return showPickList(u, ctx, pg + 1);
   if (t === "صفحه قبل") return showPickList(u, ctx, pg - 1);
-  const c = await Country.findOne({ ...ctx.query, name: T.norm(t) });
+  const c = await findByName(ctx.query, t);
   if (!c) return showPickList(u, ctx, pg);
   return pickDone(u, ctx, c);
 };
@@ -858,8 +862,7 @@ steps.mk_name = A(async (u, t) => {
   const c = await Country.create({
     name,
     code: gen(8),
-    res: G.startRes("normal"),
-    units: G.START.units,
+    ...G.freshState("normal"),
   });
   return home(
     u,
@@ -892,7 +895,7 @@ R(
       let text = title + ` (${fa(start + 1)} تا ${fa(end)})\n\n`;
       for (let i = start; i < end; i++) {
         const c = l[i];
-        text += fa(i + 1) + ". " + mono(c.name) + " ـ " + stateName(c);
+        text += fa(i + 1) + ". " + mono(withFlag(c.name)) + " ـ " + stateName(c);
         if (isOwner) text += " | " + mono(c.code);
         text += "\n";
       }
@@ -965,8 +968,7 @@ R(
             name,
             code: gen(8),
             tier,
-            res: G.startRes(tier),
-            units: G.START.units,
+            ...G.freshState(tier),
           });
           made++;
           break;
@@ -991,7 +993,11 @@ R(
           fa(cnt("military")) +
             " کشور (سرباز " +
             fa(G.TIERS.military.start.soldiers) +
-            " برابر)",
+            " برابر، پدافندها +" +
+            fa(G.TIERS.military.lv.airDef) +
+            " سطح، پادگان +" +
+            fa(G.TIERS.military.lv.barracks) +
+            " سطح)",
         ) +
         "\n" +
         "اقتصادی ویژه: " +
@@ -1039,9 +1045,17 @@ steps.tier_pick = O(async (u, t) => {
   const c = await Country.findById(u.state.data.id);
   if (!c) return home(u, quote("کشور پیدا نشد."));
   // ارتقاء به رده‌ی ویژه: یک‌بار مازاد منابع اولیه‌ی آن رده هم داده می‌شود
-  const bonus = tier !== G.tierOf(c.tier) ? G.tierBonus(tier) : {};
+  const change = tier !== G.tierOf(c.tier);
+  const bonus = change ? G.tierBonus(tier) : {};
+  const bLv = change ? G.tierBonusLv(tier) : {};
+  const bUnits = change ? G.tierBonusUnits(tier) : {};
   const upd = { $set: { tier } };
-  if (Object.keys(bonus).length) upd.$inc = G.pos(bonus);
+  const inc = {
+    ...G.pos(bonus),
+    ...Object.fromEntries(Object.entries(bLv).map(([k, v]) => ["lv." + k, v])),
+    ...Object.fromEntries(Object.entries(bUnits).map(([k, v]) => ["units." + k, v])),
+  };
+  if (Object.keys(inc).length) upd.$inc = inc;
   await Country.updateOne({ _id: c._id }, upd);
   await N.dm(
     c.ownerId,
@@ -1049,15 +1063,15 @@ steps.tier_pick = O(async (u, t) => {
       bold("رده‌ی کشور شما تغییر کرد"),
       "رده‌ی جدید: " + mono(G.TIERS[tier].name),
     ) +
-      (Object.keys(bonus).length
-        ? "\n" + G.describeBundle({ res: bonus })
+      (Object.keys(inc).length
+        ? "\n" + G.describeBundle({ res: bonus, units: bUnits, levels: bLv })
         : ""),
   );
   return home(
     u,
     quote("رده‌ی " + mono(c.name) + " ← " + mono(G.TIERS[tier].name)) +
-      (Object.keys(bonus).length
-        ? "\n" + G.describeBundle({ res: bonus })
+      (Object.keys(inc).length
+        ? "\n" + G.describeBundle({ res: bonus, units: bUnits, levels: bLv })
         : ""),
   );
 });
@@ -1074,22 +1088,7 @@ PICK("release", "آزادسازی کشور", {
     };
     if (c.status === "destroyed") {
       // کشور نابودشده دوباره با منابع اولیه فعال می‌شود
-      Object.assign(set, {
-        res: G.startRes(c.tier),
-        units: G.START.units,
-        lv: {
-          oilMine: 1,
-          goldMine: 1,
-          gasMine: 1,
-          copperMine: 1,
-          barracks: 1,
-          bank: 1,
-          airDef: 0,
-          groundDef: 0,
-          navalDef: 0,
-        },
-        hp: G.HP_MAX,
-      });
+      Object.assign(set, G.freshState(c.tier));
     }
     await Country.updateOne({ _id: c._id }, { $set: set });
     await dropOwner(c._id);
@@ -1576,7 +1575,7 @@ steps.pub_dest = A(async (u, t) => {
     return home(
       u,
       quote(
-        "آیدی " +
+        "کانال/گروه " +
           miss.join(" و ") +
           " هنوز ثبت نشده است. مدیریت اصلی از «کانال و گروه» آن را ثبت کند.",
       ),
@@ -1633,20 +1632,29 @@ async function doPublish(u, d, fileId) {
   return home(u, quote(bold("نتیجه ارسال"), ...lines));
 }
 
-// ---------- آیدی کانال و گروه (قابل ویرایش در پنل مدیریت اصلی) ----------
+// ---------- کانال و گروه (ثبت با لینک؛ گروه‌ها آیدی عمومی ندارند) ----------
 const chatLine = (label, id) => label + ": " + mono(id || "تنظیم نشده");
 async function chatSettingsText() {
+  const [ch, gr, chl, grl] = [
+    await N.channelId(),
+    await N.groupChatId(),
+    await N.getLink("channel"),
+    await N.getLink("group"),
+  ];
   return (
     bold("کانال و گروه") +
     "\n\n" +
-    chatLine("کانال (اعلان‌ها)", await N.channelId()) +
+    chatLine("کانال (اعلان‌ها)", ch ? "ثبت شده" : "") +
+    (chl ? "\nلینک کانال: " + chl : "") +
     "\n" +
-    chatLine("گروه (بیانیه‌ها)", await N.groupChatId()) +
+    chatLine("گروه (بیانیه‌ها)", gr ? "ثبت شده" : "") +
+    (grl ? "\nلینک گروه: " + grl : "") +
     "\n\n" +
     quote(
       "اعلان محموله، نبرد و فصل در کانال ارسال می‌شود و بیانیه‌ی بازیکن‌ها در گروه.",
       "اگر گروه ثبت نشود بیانیه‌ها هم در کانال می‌روند.",
       "ربات باید در کانال و گروه ادمین باشد.",
+      "برای ثبت، لینک گروه یا کانال را بفرستید. بعد از ثبت لینک، داخل گروه بنویسید: ثبت گروه",
     )
   );
 }
@@ -1659,48 +1667,85 @@ R(
   O(async (u) => say(u, await chatSettingsText(), M.chatSet)),
 );
 R(
-  "آیدی کانال",
+  "ثبت لینک کانال",
   O((u) =>
     ask(
       u,
       "set_channel",
       quote(
-        "آیدی چت کانال را ارسال کنید.",
+        "لینک کانال را ارسال کنید (مثل https://rubika.ir/...).",
+        "اگر آیدی عمومی دارد، آیدی هم قبول است.",
         "برای حذف کلمه‌ی «حذف» را بفرستید.",
       ),
     ),
   ),
 );
 R(
-  "آیدی گروه",
+  "ثبت لینک گروه",
   O((u) =>
     ask(
       u,
       "set_group",
       quote(
-        "آیدی چت گروه را ارسال کنید.",
+        "لینک گروه را ارسال کنید (مثل https://rubika.ir/...).",
         "برای حذف کلمه‌ی «حذف» را بفرستید.",
-        "یا داخل گروه بنویسید: ثبت گروه",
+        "بعد از ثبت لینک، اگر ربات خودش گروه را پیدا نکرد، داخل خود گروه بنویسید: ثبت گروه",
       ),
     ),
   ),
 );
+const LINK_RE = /^https?:\/\/(?:www\.)?rubika\.ir\/([^\s?#]+)/i;
 const setChatStep = (kind) =>
   O(async (u, t, m) => {
-    const id = String(m.text || "").trim();
+    const raw = String(m.text || "").trim();
     const name = kind === "channel" ? "کانال" : "گروه";
-    if (id === "حذف") {
+    if (raw === "حذف") {
       await N.setChat(kind, null);
-      return say(u, quote("آیدی " + name + " حذف شد."), M.chatSet);
+      await N.setLink(kind, null);
+      return say(u, quote(name + " حذف شد."), M.chatSet);
     }
-    if (!/^[A-Za-z0-9_]{6,64}$/.test(id))
+    const lm = raw.match(LINK_RE);
+    if (lm) {
+      // لینک ← ذخیره‌ی لینک + تلاش برای پیدا کردن شناسه‌ی چت از روی لینک
+      await N.setLink(kind, raw);
+      let found = null;
+      for (const cand of [...new Set([lm[1], lm[1].split("/").pop()])]) {
+        try {
+          const r = await rb.getChat(cand);
+          const ch = r && r.data && r.data.chat;
+          if (ch && ch.chat_id) {
+            found = ch;
+            break;
+          }
+        } catch (e) {}
+      }
+      if (found) await N.setChat(kind, found.chat_id);
+      const title = found && (found.title || found.first_name);
+      return say(
+        u,
+        quote(
+          "لینک " + name + " ثبت شد.",
+          found
+            ? "چت پیدا شد و فعال است."
+            : kind === "group"
+              ? "ربات از روی لینک چت را پیدا نکرد. ربات را در گروه ادمین کنید و داخل گروه بنویسید: ثبت گروه"
+              : "ربات از روی لینک چت را پیدا نکرد. اگر کانال آیدی عمومی دارد، آیدی را هم بفرستید.",
+        ) +
+          "\nلینک: " +
+          mono(raw) +
+          (title ? "\nنام: " + mono(title) : ""),
+        M.chatSet,
+      );
+    }
+    // آیدی مستقیم (برای کانال‌هایی که آیدی دارند)
+    if (!/^[A-Za-z0-9_]{6,64}$/.test(raw))
       return ask(
         u,
         "set_" + kind,
-        quote("آیدی نامعتبر است. دوباره ارسال کنید."),
+        quote("لینک یا آیدی نامعتبر است. لینک را دوباره ارسال کنید."),
       );
-    await N.setChat(kind, id);
-    const info = await rb.getChat(id).catch(() => ({}));
+    await N.setChat(kind, raw);
+    const info = await rb.getChat(raw).catch(() => ({}));
     const title =
       info &&
       info.data &&
@@ -1708,10 +1753,7 @@ const setChatStep = (kind) =>
       (info.data.chat.title || info.data.chat.first_name);
     return say(
       u,
-      quote("آیدی " + name + " ثبت شد.") +
-        "\n" +
-        chatLine(name, id) +
-        (title ? "\nنام: " + mono(title) : ""),
+      quote(name + " ثبت شد.") + (title ? "\nنام: " + mono(title) : ""),
       M.chatSet,
     );
   });
