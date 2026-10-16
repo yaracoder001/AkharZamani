@@ -80,6 +80,98 @@ async function refreshProfile(u) {
   );
 }
 
+// ---------- انتخاب کشور: «تایپی» یا «انتخاب از لیست» ----------
+// با ۱۰۰ کشور، هر بخشی که نام کشور می‌خواهد دو حالت دارد: نام را تایپ کنید، یا از کیبوردِ لیست (صفحه‌به‌صفحه) بزنید.
+const PAGE = 12;
+const pickActs = {};
+const LEVEL = { O: O, A: A, P: P };
+const can = (u, lv) => (lv === "O" ? u.isOwner : lv === "A" ? u.isOwner || u.isAdmin : !!u.countryId);
+
+// act: شناسه‌ی عملیات | label: نام دکمه‌ی منو | level: O مدیریت اصلی، A ادمین یا مدیریت، P بازیکن
+// filter(u, mine): شرط پیدا کردن کشورهای قابل انتخاب | pre(u, mine): پیام مسدودکننده (اختیاری)
+// then(u, target, mine): کار بعد از انتخاب
+function PICK(act, label, { level, title, filter, pre, then }) {
+  pickActs[act] = { level, title, filter, pre, then };
+  R(
+    label,
+    LEVEL[level](async (...a) => {
+      const u = a[0];
+      const mine = level === "P" ? a[1] : null;
+      if (pre) {
+        const blk = await pre(u, mine);
+        if (blk) return say(u, blk);
+      }
+      return askK(u, "pick_mode", quote(bold(title), "روش انتخاب کشور را بزنید."), M.pickMode, { act });
+    }),
+  );
+}
+
+async function pickCtx(u) {
+  const d = (u.state && u.state.data) || {};
+  const a = pickActs[d.act];
+  if (!a || !can(u, a.level)) {
+    await home(u, quote("گزینه نامعتبر است."));
+    return null;
+  }
+  const mine = a.level === "P" ? await getC(u) : null;
+  if (a.level === "P" && !mine) return null;
+  const query = a.filter ? await a.filter(u, mine) : {};
+  return { d, a, mine, query };
+}
+
+async function showPickList(u, ctx, page) {
+  const names = (await Country.find(ctx.query).sort({ createdAt: 1 }).limit(300)).map((c) => c.name);
+  if (!names.length) return home(u, quote("کشوری برای انتخاب وجود ندارد."));
+  const pages = Math.ceil(names.length / PAGE);
+  const pg = Math.min(Math.max(0, page), pages - 1);
+  const slice = names.slice(pg * PAGE, pg * PAGE + PAGE);
+  const rows = [];
+  for (let i = 0; i < slice.length; i += 3) rows.push(slice.slice(i, i + 3));
+  const nav = [];
+  if (pg > 0) nav.push(M.NAV.prev);
+  if (pg < pages - 1) nav.push(M.NAV.next);
+  if (nav.length) rows.push(nav);
+  rows.push(["↩️ بازگشت"]);
+  return askK(
+    u,
+    "pick_list",
+    quote(bold(ctx.a.title), "یکی از کشورها را بزنید.", "صفحه " + fa(pg + 1) + " از " + fa(pages) + " ـ " + fa(names.length) + " کشور"),
+    rows,
+    { act: ctx.d.act, page: pg },
+  );
+}
+
+async function pickDone(u, ctx, c) {
+  return ctx.a.then(u, c, ctx.mine);
+}
+
+steps.pick_mode = async (u, t) => {
+  const ctx = await pickCtx(u);
+  if (!ctx) return;
+  if (t === "تایپی")
+    return askK(u, "pick_type", quote(bold(ctx.a.title), "نام کشور را تایپ کنید."), M.back, { act: ctx.d.act });
+  if (t === "انتخاب از لیست") return showPickList(u, ctx, 0);
+  return askK(u, "pick_mode", quote("یکی از گزینه‌ها را انتخاب کنید."), M.pickMode, { act: ctx.d.act });
+};
+steps.pick_type = async (u, t) => {
+  const ctx = await pickCtx(u);
+  if (!ctx) return;
+  const c = await Country.findOne({ ...ctx.query, name: T.norm(t) });
+  if (!c)
+    return askK(u, "pick_type", quote("کشوری با این نام پیدا نشد. دوباره تایپ کنید."), M.back, { act: ctx.d.act });
+  return pickDone(u, ctx, c);
+};
+steps.pick_list = async (u, t) => {
+  const ctx = await pickCtx(u);
+  if (!ctx) return;
+  const pg = Number(ctx.d.page) || 0;
+  if (t === "صفحه بعد") return showPickList(u, ctx, pg + 1);
+  if (t === "صفحه قبل") return showPickList(u, ctx, pg - 1);
+  const c = await Country.findOne({ ...ctx.query, name: T.norm(t) });
+  if (!c) return showPickList(u, ctx, pg);
+  return pickDone(u, ctx, c);
+};
+
 // ---------- عمومی ----------
 const HELP = [
   quote(bold("راهنمای بازی جنگ جهانی")),
@@ -96,9 +188,11 @@ const HELP = [
     " دقیقه در راه‌اند و با کد رهگیری قابل سرنگونی‌اند.",
   "پک‌های ویژه فقط با پول واقعی خریداری می‌شوند.",
   "",
+  "جان کشور: هر کشور تقریباً ۱۰۰۰ موشک جان دارد و جانش از سه لایه ساخته می‌شود؛ حمله‌ی موفق اول پدافندها، بعد نیروها (زمینی، هوایی، دریایی) و در آخر هسته‌ی کشور را می‌خورد.",
+  "",
   "هر فصل بازی " +
     fa(cfg.seasonDays) +
-    " روز است. تیمی که نابود شود حذف می‌شود و آخرین تیم باقی‌مانده، یا قوی‌ترین تیم در پایان فصل، برنده است. حمله فقط در زمان فصل فعال ممکن است. هر حمله‌ی موفق از سلامت کشور هدف کم می‌کند و سلامت صفر یعنی حذف. سلامت هر روز کمی بازسازی می‌شود. روزها را مدیریت پیش می‌برد.",
+    " روز است. تیمی که نابود شود حذف می‌شود و آخرین تیم باقی‌مانده، یا قوی‌ترین تیم در پایان فصل، برنده است. حمله فقط در زمان فصل فعال ممکن است. صفر شدن هسته‌ی کشور یعنی حذف. هسته هر روز کمی بازسازی می‌شود. روزها را مدیریت پیش می‌برد.",
 ].join("\n");
 
 R("راهنما", (u) => say(u, HELP));
@@ -395,30 +489,13 @@ const attackBlock = async () => {
       : "فصل هنوز شروع نشده است. حمله فقط در زمان فصل فعال ممکن است.",
   );
 };
-R(
-  "حمله",
-  P(async (u, c) => {
-    const blk = await attackBlock();
-    if (blk) return say(u, blk);
-    const l = await listTargets(c);
-    if (!l) return say(u, quote("هدفی برای حمله وجود ندارد."));
-    return ask(
-      u,
-      "atk_target",
-      quote(bold("حمله")) +
-        "\n\nکشورهای قابل حمله:\n" +
-        l +
-        "\n\n" +
-        quote("نام کشور هدف را ارسال کنید."),
-    );
-  }),
-);
-steps.atk_target = P(async (u, c, t) => {
-  const to = await Country.findOne({ name: T.norm(t), ...targetsOf(c) });
-  if (!to) return ask(u, "atk_target", quote("کشوری با این نام پیدا نشد."));
-  return askK(u, "atk_type", quote("نوع حمله را انتخاب کنید."), M.types, {
-    to: String(to._id),
-  });
+PICK("atk", "حمله", {
+  level: "P",
+  title: "حمله",
+  pre: async () => attackBlock(),
+  filter: (u, c) => targetsOf(c),
+  then: (u, to) =>
+    askK(u, "atk_type", quote("نوع حمله را انتخاب کنید."), M.types, { to: String(to._id) }),
 });
 steps.atk_type = P(async (u, c, t) => {
   const type = { زمینی: "ground", هوایی: "air", دریایی: "naval" }[t];
@@ -472,34 +549,20 @@ steps.atk_pct = P(async (u, c, t) => {
   return home(u, sentText(s));
 });
 
-R(
-  "ارسال محموله",
-  P(async (u, c) => {
-    const l = await listTargets(c);
-    if (!l) return say(u, quote("کشور دیگری وجود ندارد."));
-    return ask(
+PICK("aid", "ارسال محموله", {
+  level: "P",
+  title: "ارسال محموله",
+  filter: (u, c) => targetsOf(c),
+  then: (u, to) =>
+    ask(
       u,
-      "aid_target",
-      quote(bold("ارسال محموله")) +
-        "\n\nکشورها:\n" +
-        l +
-        "\n\n" +
-        quote("نام کشور مقصد را ارسال کنید."),
-    );
-  }),
-);
-steps.aid_target = P(async (u, c, t) => {
-  const to = await Country.findOne({ name: T.norm(t), ...targetsOf(c) });
-  if (!to) return ask(u, "aid_target", quote("کشوری با این نام پیدا نشد."));
-  return ask(
-    u,
-    "aid_amount",
-    quote(
-      "مقدار را به ترتیب بفرستید: پول، نفت، طلا، گاز، مس، سرباز",
-      "مثال: " + mono("1000 0 0 50 50 0"),
+      "aid_amount",
+      quote(
+        "مقدار را به ترتیب بفرستید: پول، نفت، طلا، گاز، مس، سرباز",
+        "مثال: " + mono("1000 0 0 50 50 0"),
+      ),
+      { to: String(to._id) },
     ),
-    { to: String(to._id) },
-  );
 });
 steps.aid_amount = P(async (u, c, t) => {
   const n = T.nums(t);
@@ -586,11 +649,18 @@ steps.shoot = P(async (u, c, t) => {
   return home(u, quote(bold("محموله سرنگون شد.")));
 });
 
+// عکس معتبر داخل پیام (برای بیانیه و ارسال به کانال/گروه)
+const photoOf = (m) => {
+  const f = m && m.file;
+  if (!f || !f.file_id) return null;
+  return !f.file_name || /\.(jpe?g|png|webp|gif)$/i.test(f.file_name) ? String(f.file_id) : null;
+};
+
 R(
   "ارسال بیانیه",
   P(async (u, c) => {
-    if (!(await N.groupId()))
-      return say(u, quote("گروه اعلان هنوز تنظیم نشده است."));
+    if (!(await N.statementId()))
+      return say(u, quote("گروه بیانیه‌ها هنوز تنظیم نشده است. مدیریت باید از «کانال و گروه» آن را ثبت کند."));
     if (c.lastStatement && Date.now() - c.lastStatement.getTime() < 300000)
       return say(u, quote("هر ۵ دقیقه یک بیانیه مجاز است."));
     return ask(u, "stmt", quote("متن بیانیه را ارسال کنید (حداکثر ۷۰۰ حرف)."));
@@ -599,23 +669,36 @@ R(
 steps.stmt = P(async (u, c, t, m) => {
   const body = T.safeMulti(m.text).slice(0, 700);
   if (body.length < 3) return ask(u, "stmt", quote("متن بیانیه کوتاه است."));
+  return askK(u, "stmt_photo", quote("بیانیه همراه عکس ارسال شود؟"), M.photoAsk, { body });
+});
+steps.stmt_photo = P(async (u, c, t) => {
+  const d = u.state.data;
+  if (t === "با عکس") return askK(u, "stmt_img", quote("عکس را ارسال کنید."), M.back, d);
+  if (t === "بدون عکس") return sendStatement(u, c, d.body, null);
+  return askK(u, "stmt_photo", quote("یکی از گزینه‌ها را انتخاب کنید."), M.photoAsk, d);
+});
+steps.stmt_img = P(async (u, c, t, m) => {
+  const d = u.state.data;
+  const f = photoOf(m);
+  if (!f) return askK(u, "stmt_img", quote("عکس معتبر نیست. یک عکس بفرستید."), M.back, d);
+  return sendStatement(u, c, d.body, f);
+});
+async function sendStatement(u, c, body, fileId) {
   await refreshProfile(u);
   const who = T.usernameOk(u.username)
     ? T.link("@" + u.username, "https://rubika.ir/" + u.username)
     : mono(u.name || "ناشناس") + " ـ شناسه: " + mono(u.userId);
-  await Country.updateOne(
-    { _id: c._id },
-    { $set: { lastStatement: new Date() } },
+  const r = await N.statement(
+    bold("بیانیه رسمی کشور " + c.name) + "\n\n" + quote(body) + "\n\nارسال‌کننده: " + who,
+    { fileId },
   );
-  await N.announce(
-    quote(bold("بیانیه رسمی کشور " + c.name)) +
-      "\n\n" +
-      quote(body) +
-      "\n\nارسال‌کننده: " +
-      who,
+  if (!r.ok) return home(u, quote("ارسال بیانیه ممکن نشد. به مدیریت خبر بدهید."));
+  await Country.updateOne({ _id: c._id }, { $set: { lastStatement: new Date() } });
+  return home(
+    u,
+    quote(fileId && !r.photo ? "بیانیه ارسال شد، اما ارسال عکس ممکن نشد و فقط متن رفت." : "بیانیه ارسال شد."),
   );
-  return home(u, quote("بیانیه ارسال شد."));
-});
+}
 
 // ---------- پک‌ها (کاربر) ----------
 R(
@@ -717,83 +800,54 @@ const stateName = (c) =>
       ? "دارای بازیکن"
       : "آزاد") +
   (G.tierOf(c.tier) !== "normal" ? " ـ " + G.TIERS[G.tierOf(c.tier)].name : "");
-R(
-  "لیست کشورها",
-  O(async (u) => {
-    const l = await Country.find().sort({ createdAt: 1 });
-    if (!l.length) return say(u, quote("هنوز کشوری ساخته نشده است."));
-    return say(
-      u,
-      quote(bold("کشورها و کدها")) +
-        "\n\n" +
-        l
-          .map(
-            (c, i) =>
-              fa(i + 1) +
-              ". " +
-              mono(c.name) +
-              " ـ " +
-              stateName(c) +
-              "\n    کد: " +
-              mono(c.code),
-          )
-          .join("\n"),
-    );
-  }),
-);
+// مدیریت اصلی: همراه کد ورود | ادمین: بدون کد (کد را از «دریافت کد کشور» می‌گیرد)
 R(
   "لیست کشورها",
   A(async (u) => {
     const l = await Country.find().sort({ createdAt: 1 });
     if (!l.length) return say(u, quote("هنوز کشوری ساخته نشده است."));
+    const row = (c, i) =>
+      fa(i + 1) +
+      ". " +
+      mono(c.name) +
+      " ـ " +
+      stateName(c) +
+      (u.isOwner ? "\n    کد: " + mono(c.code) : "");
     return say(
       u,
-      quote("کشورها") +
-        "\n\n" +
-        l
-          .map(
-            (c, i) =>
-              fa(i + 1) +
-              ". " +
-              c.name +
-              " ـ " +
-              stateName(c) +
-              "  -  " +
-              c.code,
-          )
-          .join("\n"),
+      quote(bold(u.isOwner ? "کشورها و کدها" : "کشورها")) + "\n\n" + l.map(row).join("\n"),
     );
   }),
 );
-R(
-  "اطلاعات کشور",
-  A((u) => ask(u, "info_name", quote("نام کشور را ارسال کنید."))),
-);
-steps.info_name = A(async (u, t) => {
-  const c = await Country.findOne({ name: T.norm(t) });
-  if (!c) return ask(u, "info_name", quote("کشوری با این نام پیدا نشد."));
-  return home(u, G.statusText(c) + "\n\n" + quote("وضعیت: " + stateName(c)));
+PICK("info", "اطلاعات کشور", {
+  level: "A",
+  title: "اطلاعات کشور",
+  then: (u, c) => home(u, G.statusText(c) + "\n\n" + quote("وضعیت: " + stateName(c))),
+});
+
+// دریافت کد ورود کشور (مدیریت اصلی و ادمین)
+PICK("getcode", "دریافت کد کشور", {
+  level: "A",
+  title: "دریافت کد کشور",
+  then: (u, c) =>
+    home(
+      u,
+      bold("کد ورود کشور") +
+        "\n\nنام: " + mono(c.name) +
+        "\nکد: " + mono(c.code) +
+        "\n\n" + quote("وضعیت: " + stateName(c)),
+    ),
 });
 
 const dropOwner = (id) =>
   User.updateMany({ countryId: id }, { $set: { countryId: null } });
 
-R(
-  "نابودی کشور",
-  O((u) =>
-    ask(u, "ds_name", quote("نام کشوری که باید نابود شود را ارسال کنید.")),
-  ),
-);
-steps.ds_name = O(async (u, t) => {
-  const c = await Country.findOne({ name: T.norm(t), status: "active" });
-  if (!c) return ask(u, "ds_name", quote("کشور فعالی با این نام پیدا نشد."));
-  return askK(
-    u,
-    "ds_ok",
-    quote("کشور " + mono(c.name) + " نابود شود؟"),
-    M.yes,
-    { id: String(c._id) },
-  );
+PICK("destroy", "نابودی کشور", {
+  level: "O",
+  title: "نابودی کشور",
+  filter: () => ({ status: "active" }),
+  then: (u, c) =>
+    askK(u, "ds_ok", quote("کشور " + mono(c.name) + " نابود شود؟"), M.yes, { id: String(c._id) }),
 });
 steps.ds_ok = O(async (u, t) => {
   if (t !== "بله") return home(u, quote("لغو شد."));
@@ -866,23 +920,20 @@ R(
   }),
 );
 
-R(
-  "ویژه کردن کشور",
-  O((u) => ask(u, "tier_name", quote("نام کشور را ارسال کنید."))),
-);
-steps.tier_name = O(async (u, t) => {
-  const c = await Country.findOne({ name: T.norm(t) });
-  if (!c) return ask(u, "tier_name", quote("کشوری با این نام پیدا نشد."));
-  return askK(
-    u,
-    "tier_pick",
-    quote(
-      "رده‌ی کشور " + mono(c.name) + " را انتخاب کنید.",
-      "رده‌ی فعلی: " + G.TIERS[G.tierOf(c.tier)].name,
+PICK("tier", "ویژه کردن کشور", {
+  level: "O",
+  title: "ویژه کردن کشور",
+  then: (u, c) =>
+    askK(
+      u,
+      "tier_pick",
+      quote(
+        "رده‌ی کشور " + mono(c.name) + " را انتخاب کنید.",
+        "رده‌ی فعلی: " + G.TIERS[G.tierOf(c.tier)].name,
+      ),
+      M.tiers,
+      { id: String(c._id) },
     ),
-    M.tiers,
-    { id: String(c._id) },
-  );
 });
 steps.tier_pick = O(async (u, t) => {
   const tier = {
@@ -924,58 +975,46 @@ steps.tier_pick = O(async (u, t) => {
   );
 });
 
-R(
-  "آزادسازی کشور",
-  O((u) =>
-    ask(
+PICK("release", "آزادسازی کشور", {
+  level: "O",
+  title: "آزادسازی کشور",
+  then: async (u, c) => {
+    const set = {
+      ownerId: null,
+      code: gen(8),
+      status: "active",
+      lastClaim: new Date(),
+    };
+    if (c.status === "destroyed") {
+      // کشور نابودشده دوباره با منابع اولیه فعال می‌شود
+      Object.assign(set, {
+        res: G.startRes(c.tier),
+        units: G.START.units,
+        lv: {
+          oilMine: 1,
+          goldMine: 1,
+          gasMine: 1,
+          copperMine: 1,
+          barracks: 1,
+          bank: 1,
+          airDef: 0,
+          groundDef: 0,
+          navalDef: 0,
+        },
+        hp: G.HP_MAX,
+      });
+    }
+    await Country.updateOne({ _id: c._id }, { $set: set });
+    await dropOwner(c._id);
+    await N.dm(c.ownerId, quote("کشور شما آزاد شد و دسترسی شما قطع گردید."));
+    await S.checkWinner();
+    return home(
       u,
-      "rl_name",
-      quote(
-        "نام کشوری که باید آزاد شود را ارسال کنید.",
-        "کشور نابود شده دوباره با منابع اولیه فعال می‌شود.",
-      ),
-    ),
-  ),
-);
-steps.rl_name = O(async (u, t) => {
-  const c = await Country.findOne({ name: T.norm(t) });
-  if (!c) return ask(u, "rl_name", quote("کشوری با این نام پیدا نشد."));
-  const set = {
-    ownerId: null,
-    code: gen(8),
-    status: "active",
-    lastClaim: new Date(),
-  };
-  if (c.status === "destroyed") {
-    Object.assign(set, {
-      res: G.startRes(c.tier),
-      units: G.START.units,
-      lv: {
-        oilMine: 1,
-        goldMine: 1,
-        gasMine: 1,
-        copperMine: 1,
-        barracks: 1,
-        bank: 1,
-        airDef: 0,
-        groundDef: 0,
-        navalDef: 0,
-      },
-      hp: G.HP_MAX,
-    });
-  }
-  await Country.updateOne({ _id: c._id }, { $set: set });
-  await dropOwner(c._id);
-  await N.dm(c.ownerId, quote("کشور شما آزاد شد و دسترسی شما قطع گردید."));
-  await S.checkWinner();
-  return home(
-    u,
-    quote(
-      bold("کشور آزاد شد"),
-      "نام: " + mono(c.name),
-      "کد جدید: " + mono(set.code),
-    ),
-  );
+      quote(bold("کشور آزاد شد")) +
+        "\nنام: " + mono(c.name) +
+        "\nکد جدید: " + mono(set.code),
+    );
+  },
 });
 
 // مدیریت فصل
@@ -1413,6 +1452,101 @@ steps.bc = O(async (u, t, m) => {
   );
 });
 
+// ---------- ارسال پیام به کانال / گروه (مدیریت و ادمین؛ عکس اختیاری) ----------
+const DEST = { کانال: "channel", گروه: "group", "هر دو": "both" };
+const DEST_NAME = { channel: "کانال", group: "گروه" };
+
+R(
+  "ارسال به کانال/گروه",
+  A((u) => askK(u, "pub_dest", quote(bold("ارسال پیام"), "مقصد را انتخاب کنید."), M.dest, {})),
+);
+steps.pub_dest = A(async (u, t) => {
+  const dest = DEST[t];
+  if (!dest) return askK(u, "pub_dest", quote("یکی از گزینه‌ها را انتخاب کنید."), M.dest, {});
+  const miss = [];
+  if ((dest === "channel" || dest === "both") && !(await N.channelId())) miss.push("کانال");
+  if ((dest === "group" || dest === "both") && !(await N.groupChatId())) miss.push("گروه");
+  if (miss.length)
+    return home(u, quote("آیدی " + miss.join(" و ") + " هنوز ثبت نشده است. مدیریت اصلی از «کانال و گروه» آن را ثبت کند."));
+  return ask(u, "pub_text", quote("متن پیام را ارسال کنید."), { dest });
+});
+steps.pub_text = A(async (u, t, m) => {
+  const body = T.safeMulti(m.text).slice(0, 3000);
+  if (body.length < 2) return ask(u, "pub_text", quote("متن خالی است."), u.state.data);
+  return askK(u, "pub_photo", quote("پیام همراه عکس ارسال شود؟"), M.photoAsk, { ...u.state.data, body });
+});
+steps.pub_photo = A(async (u, t) => {
+  const d = u.state.data;
+  if (t === "با عکس") return askK(u, "pub_img", quote("عکس را ارسال کنید."), M.back, d);
+  if (t === "بدون عکس") return doPublish(u, d, null);
+  return askK(u, "pub_photo", quote("یکی از گزینه‌ها را انتخاب کنید."), M.photoAsk, d);
+});
+steps.pub_img = A(async (u, t, m) => {
+  const d = u.state.data;
+  const f = photoOf(m);
+  if (!f) return askK(u, "pub_img", quote("عکس معتبر نیست. یک عکس بفرستید."), M.back, d);
+  return doPublish(u, d, f);
+});
+async function doPublish(u, d, fileId) {
+  const r = await N.publish(d.dest, d.body, { fileId });
+  const lines = Object.entries(r).map(
+    ([k, v]) => DEST_NAME[k] + ": " + (v.ok ? (fileId && !v.photo ? "ارسال شد (بدون عکس)" : "ارسال شد") : "ناموفق"),
+  );
+  return home(u, quote(bold("نتیجه ارسال"), ...lines));
+}
+
+// ---------- آیدی کانال و گروه (قابل ویرایش در پنل مدیریت اصلی) ----------
+const chatLine = (label, id) => label + ": " + mono(id || "تنظیم نشده");
+async function chatSettingsText() {
+  return (
+    bold("کانال و گروه") +
+    "\n\n" +
+    chatLine("کانال (اعلان‌ها)", await N.channelId()) +
+    "\n" +
+    chatLine("گروه (بیانیه‌ها)", await N.groupChatId()) +
+    "\n\n" +
+    quote(
+      "اعلان محموله، نبرد و فصل در کانال ارسال می‌شود و بیانیه‌ی بازیکن‌ها در گروه.",
+      "اگر گروه ثبت نشود بیانیه‌ها هم در کانال می‌روند.",
+      "ربات باید در کانال و گروه ادمین باشد.",
+    )
+  );
+}
+R("کانال و گروه", O(async (u) => say(u, await chatSettingsText(), M.chatSet)));
+R("مشاهده تنظیمات", O(async (u) => say(u, await chatSettingsText(), M.chatSet)));
+R(
+  "آیدی کانال",
+  O((u) =>
+    ask(u, "set_channel", quote("آیدی چت کانال را ارسال کنید.", "برای حذف کلمه‌ی «حذف» را بفرستید.")),
+  ),
+);
+R(
+  "آیدی گروه",
+  O((u) =>
+    ask(u, "set_group", quote("آیدی چت گروه را ارسال کنید.", "برای حذف کلمه‌ی «حذف» را بفرستید.", "یا داخل گروه بنویسید: ثبت گروه")),
+  ),
+);
+const setChatStep = (kind) =>
+  O(async (u, t, m) => {
+    const id = String(m.text || "").trim();
+    const name = kind === "channel" ? "کانال" : "گروه";
+    if (id === "حذف") {
+      await N.setChat(kind, null);
+      return say(u, quote("آیدی " + name + " حذف شد."), M.chatSet);
+    }
+    if (!/^[A-Za-z0-9_]{6,64}$/.test(id)) return ask(u, "set_" + kind, quote("آیدی نامعتبر است. دوباره ارسال کنید."));
+    await N.setChat(kind, id);
+    const info = await rb.getChat(id).catch(() => ({}));
+    const title = info && info.data && info.data.chat && (info.data.chat.title || info.data.chat.first_name);
+    return say(
+      u,
+      quote("آیدی " + name + " ثبت شد.") + "\n" + chatLine(name, id) + (title ? "\nنام: " + mono(title) : ""),
+      M.chatSet,
+    );
+  });
+steps.set_channel = setChatStep("channel");
+steps.set_group = setChatStep("group");
+
 // ---------- ورودی اصلی ----------
 async function onPrivate(chatId, senderId, text, msg) {
   const u = await User.findOneAndUpdate(
@@ -1433,11 +1567,14 @@ async function onPrivate(chatId, senderId, text, msg) {
     await User.updateOne({ _id: u._id }, { $set: { isAdmin: false } });
   }
 
-  const t = T.norm(text);
+  // دکمه‌ها ایموجی دارند؛ متن دکمه به نام تمیز (بدون ایموجی) تبدیل می‌شود
+  const t = M.resolve(text);
+  const step = u.state && u.state.step;
+  // عکس بدون متن فقط وقتی پذیرفته می‌شود که ربات منتظر عکس باشد
+  if (!t && !(step === "stmt_img" || step === "pub_img")) return;
   if (t === "بازگشت" || t === "/start" || t === "منو" || t === "شروع")
     return home(u);
 
-  const step = u.state && u.state.step;
   const inPassword = step === "pw_owner" || step === "pw_admin";
   if (!inPassword && routes[t]) {
     await setState(u, null);
@@ -1451,12 +1588,10 @@ async function onGroup(chatId, senderId, text) {
   if (T.norm(text) !== "ثبت گروه") return;
   const u = await User.findOne({ userId: senderId });
   if (!u || !u.isOwner || u.ownerKey !== H(cfg.ownerPass)) return;
-  await Setting.updateOne(
-    { key: "announce" },
-    { $set: { value: chatId } },
-    { upsert: true },
-  );
-  await rb.send(chatId, quote(bold("گروه اعلان‌ها ثبت شد.")));
+  // گروه بیانیه‌ها؛ اگر هنوز کانال/چت اعلان تنظیم نشده، همین گروه اعلان‌ها هم می‌شود (مثل قبل)
+  await N.setChat("group", chatId);
+  if (!(await N.channelId())) await N.setChat("channel", chatId);
+  await rb.send(chatId, quote(bold("گروه بیانیه‌ها ثبت شد.")));
 }
 
 module.exports = { onPrivate, onGroup };

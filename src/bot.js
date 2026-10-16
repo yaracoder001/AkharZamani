@@ -19,9 +19,10 @@ function parse(up) {
   if (!m) return null;
   if (m.sender_type && m.sender_type !== 'User') return null;
   const text = T.clean(m.text || (m.aux_data && m.aux_data.button_id) || '');
-  if (!text) return null;
+  const file = m.file || m.file_inline || null; // عکس/فایل ارسالی کاربر (برای بیانیه و ارسال به کانال/گروه)
+  if (!text && !file) return null;
   if (m.time && Date.now() / 1000 - Number(m.time) > 300) return null; // پیام‌های خیلی قدیمی
-  return { chatId, senderId: String(m.sender_id || chatId), text, msg: { ...m, text }, key: chatId + ':' + m.message_id };
+  return { chatId, senderId: String(m.sender_id || chatId), text, msg: { ...m, text, file }, key: chatId + ':' + m.message_id };
 }
 
 async function onUpdate(up) {
@@ -35,7 +36,7 @@ async function onUpdate(up) {
     throw e;
   }
 
-  console.log('[recv]', p.chatId.slice(0, 6) + '...', JSON.stringify(p.text).slice(0, 40));
+  console.log('[recv]', p.chatId.slice(0, 6) + '...', JSON.stringify(p.text || (p.msg.file ? '[file]' : '')).slice(0, 40));
   // گروه: g0 ، کانال: c0 ، چت خصوصی با ربات: b0
   if (p.chatId.startsWith('g')) await H.onGroup(p.chatId, p.senderId, p.text);
   else if (!p.chatId.startsWith('c')) await H.onPrivate(p.chatId, p.senderId, p.text, p.msg);

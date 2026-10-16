@@ -147,11 +147,68 @@ const score = (c) =>
         c.res.gold * 10) /
         100,
   );
-// خسارت به سلامت مدافع در حمله‌ی موفق (۱۰ تا ۵۰)
-const damage = (r) =>
-  Math.min(50, Math.max(10, Math.round((15 * r.atk) / Math.max(r.dp, 1))));
-const HP_MAX = 100;
-const HP_REGEN = 10; // بازسازی روزانه
+// ---------- جان کشور (واحد: «موشک») ----------
+// جان هر کشور یک عدد ۱۰۰ تایی الکی نیست؛ از سه لایه ساخته می‌شود و حمله‌ی موفق به همین ترتیب آن‌ها را می‌خورد:
+//   ۱) پدافندها (هوایی، زمینی، دریایی)  ← هر سطح پدافند DEF_HP موشک جان دارد
+//   ۲) نیروها (سرباز، تانک، جنگنده، پهباد، موشک، ناو، زیردریایی) ← هر واحد وزن خودش را دارد
+//   ۳) هسته‌ی کشور (hp)  ← HP_MAX = ۱۰۰۰ موشک؛ صفر شدنش یعنی حذف تیم
+// هر «۴۰ قدرت حمله» = یک موشک ضربه (POW.missile). همه‌ی این عددها را اینجا می‌توانید عوض کنید.
+const HP_MAX = 1000;
+const HP_REGEN = 100; // بازسازی روزانه‌ی هسته (۱۰ درصد)
+const DEF_HP = 25; // جان هر سطح پدافند
+const UNIT_HP = {
+  soldiers: 0.02,
+  tank: 0.6,
+  fighter: 1,
+  drone: 0.3,
+  missile: 1,
+  ship: 1.25,
+  sub: 0.9,
+};
+const DEF_KEYS = ["airDef", "groundDef", "navalDef"];
+
+const lifeParts = (c) => {
+  const defense = DEF_KEYS.reduce((a, k) => a + (c.lv[k] || 0) * DEF_HP, 0);
+  const forces = Object.keys(UNIT_HP).reduce(
+    (a, k) => a + (qty(c, k) || 0) * UNIT_HP[k],
+    0,
+  );
+  const core = Math.max(0, c.hp);
+  return { defense, forces, core, total: defense + forces + core };
+};
+
+// ضربه‌ی h موشکی به مدافع: اول پدافندها، بعد نیروها، بعد هسته. نوعِ حمله، هم‌نوع‌ها را زودتر می‌زند.
+function absorb(def, hits, type) {
+  let left = Math.max(0, hits);
+  const lvLoss = {};
+  const unitLoss = {};
+  const own = TYPES[type].def;
+  for (const k of [own, ...DEF_KEYS.filter((x) => x !== own)]) {
+    if (left <= 0) break;
+    const take = Math.min(def.lv[k] || 0, Math.floor(left / DEF_HP));
+    if (take > 0) {
+      lvLoss[k] = take;
+      left -= take * DEF_HP;
+    }
+  }
+  left = Math.max(0, left);
+  const order = [
+    ...TYPES[type].units,
+    ...Object.keys(UNIT_HP).filter((k) => !TYPES[type].units.includes(k)),
+  ];
+  for (const k of order) {
+    if (left <= 0) break;
+    const have = qty(def, k) || 0;
+    const n = Math.min(have, Math.floor(left / UNIT_HP[k]));
+    if (n > 0) {
+      unitLoss[k] = n;
+      left -= n * UNIT_HP[k];
+    }
+  }
+  left = Math.max(0, left);
+  const hpLoss = Math.min(Math.max(0, def.hp), Math.round(left));
+  return { lvLoss, unitLoss, hpLoss, hits };
+}
 const militaryOf = (c) =>
   c.res.soldiers +
   Object.keys(UNITS).reduce((a, k) => a + (c.units[k] || 0), 0);
@@ -185,15 +242,20 @@ function battle(force, type, def) {
   const survivors = {};
   for (const k of Object.keys(force))
     survivors[k] = k === "missile" ? 0 : Math.floor(force[k] * (1 - lossFrac));
-  const defFrac = win ? 0.35 : clamp((a / Math.max(d, 1)) * 0.2, 0.03, 0.3);
+  // حمله‌ی ناموفق: مدافع فقط کمی نیرو از دست می‌دهد
+  const defFrac = clamp((a / Math.max(d, 1)) * 0.2, 0.03, 0.3);
   const defLoss = {};
-  for (const k of TYPES[type].units)
-    defLoss[k] = Math.floor(qty(def, k) * defFrac);
+  if (!win)
+    for (const k of TYPES[type].units)
+      defLoss[k] = Math.floor(qty(def, k) * defFrac);
+  // حمله‌ی موفق: ضربه‌ها لایه‌به‌لایه می‌خورند (پدافند ← نیرو ← هسته)
+  const hits = win ? Math.max(1, Math.round(a / POW.missile)) : 0;
+  const hit = win ? absorb(def, hits, type) : null;
   const loot = {};
   if (win)
     for (const r of ["money", "oil", "gold", "gas", "copper"])
       loot[r] = Math.floor(def.res[r] * 0.2);
-  return { win, atk, dp, survivors, defLoss, loot };
+  return { win, atk, dp, survivors, defLoss, loot, hits, hit };
 }
 
 // مسیرهای $inc
@@ -330,7 +392,14 @@ const CATS = {
 function statusText(c) {
   const l = [
     bold("وضعیت کشور") + " " + c.name,
-    quote("سلامت کشور: " + fa(Math.max(0, c.hp)) + " از " + fa(HP_MAX)),
+    "",
+    bold("جان کشور (برحسب موشک)"),
+    quote(
+      "جان کل: " + fa(lifeParts(c).total),
+      "پدافندها (اول خورده می‌شوند): " + fa(lifeParts(c).defense),
+      "نیروها (بعد از پدافند): " + fa(lifeParts(c).forces),
+      "هسته‌ی کشور (آخر): " + fa(lifeParts(c).core) + " از " + fa(HP_MAX),
+    ),
     "",
     bold("منابع"),
     quote(
@@ -405,9 +474,13 @@ module.exports = {
   battle,
   score,
   militaryOf,
-  damage,
   HP_MAX,
   HP_REGEN,
+  DEF_HP,
+  UNIT_HP,
+  DEF_KEYS,
+  lifeParts,
+  absorb,
   forceDelta,
   neg,
   pos,

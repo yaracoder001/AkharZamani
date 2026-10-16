@@ -45,8 +45,10 @@ async function post(method, body, p) {
   return r2;
 }
 
+// id دکمه بدون ایموجی است (مسیریابی بر اساس نام تمیز)، متن نمایشی با ایموجی
+const clean = (t) => require('./text').noEmoji(t) || t;
 const keypad = (rows) => ({
-  rows: rows.map((r) => ({ buttons: r.map((t) => ({ id: t, type: 'Simple', button_text: t })) })),
+  rows: rows.map((r) => ({ buttons: r.map((t) => ({ id: clean(t), type: 'Simple', button_text: t })) })),
   resize_keyboard: true,
   on_time_keyboard: false,
 });
@@ -87,7 +89,9 @@ async function dropId(name) {
   fileIds.delete(name);
   try { await require('./db').Setting.deleteOne({ key: fidKey(name) }); } catch (e) { /* ignore */ }
 }
+const IMG_FALLBACK = { delivered: 'shipment' };
 function findImage(name) {
+  if (!name) return null;
   for (const ext of ['jpg', 'jpeg', 'png']) {
     const f = path.join(__dirname, '..', `${name}.${ext}`);
     if (fs.existsSync(f)) return f;
@@ -96,7 +100,8 @@ function findImage(name) {
 }
 
 async function sendImage(chatId, name, caption) {
-  const file = findImage(name);
+  // اگر عکس اختصاصی نبود از عکس جایگزین استفاده می‌شود (مثلا delivered ← shipment)
+  const file = findImage(name) || findImage(IMG_FALLBACK[name] || '');
   if (!file) return send(chatId, caption);
   try {
     let id = await loadId(name);
@@ -129,8 +134,26 @@ async function sendImage(chatId, name, caption) {
   return send(chatId, caption);
 }
 
+// ارسال عکسِ از قبل آپلودشده با file_id (مثلا عکسی که ادمین/بازیکن در چت خصوصی فرستاده).
+// اگر ارسال با عکس شکست خورد فقط متن فرستاده می‌شود و مقدار withPhoto=false برمی‌گردد.
+async function sendFileId(chatId, fileId, caption) {
+  try {
+    const msgs = style.build(caption, 1000);
+    if (msgs.length === 1) {
+      const r = await post('sendFile', { chat_id: chatId, file_id: fileId }, msgs[0]);
+      if (r.status === 'OK') return { ...r, withPhoto: true };
+    } else {
+      const r = await call('sendFile', { chat_id: chatId, file_id: fileId });
+      if (r.status === 'OK') return { ...(await send(chatId, caption)), withPhoto: true };
+    }
+  } catch (e) {
+    console.error('[photo]', e.message);
+  }
+  return { ...(await send(chatId, caption)), withPhoto: false };
+}
+
 const getMe = () => call('getMe');
 const getChat = (chatId) => call('getChat', { chat_id: chatId });
 const deleteMessage = (chatId, messageId) => call('deleteMessage', { chat_id: chatId, message_id: messageId });
 
-module.exports = { call, send, sendImage, getMe, getChat, deleteMessage };
+module.exports = { call, send, sendImage, sendFileId, getMe, getChat, deleteMessage };

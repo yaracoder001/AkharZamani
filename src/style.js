@@ -9,8 +9,8 @@
 // cfg.metaIndex: utf16 (پیش‌فرض) یا codepoint برای شمارش from_index و length
 //
 // قاعده‌ها:
-//  - هیچ دو استایلی روی هم نمی‌افتند و تو در تو نیستند. تنها استثنا: داخل نقل‌قول، خطی که
-//    استایل دیگری دارد از نقل‌قول بیرون می‌آید (تا کدها همیشه مونو و قابل کپی بمانند).
+//  - هر متن فقط «یک» لایه استایل دارد: هیچ استایلی داخل استایل دیگر (از جمله داخل نقل‌قول) نمی‌رود.
+//    (text.js در ساخت quote خطوط استایل‌دار را از نقل‌قول بیرون می‌گذارد و اینجا هم نگهبان نهایی است.)
 //  - فاصله و خط جدید ابتدا/انتهای هر قطعه‌ی استایل‌دار بیرون از آن می‌افتد.
 //  - مونو/بولد/لینک هیچ‌وقت چند خطی نیستند؛ نقل‌قول و پیش‌قالب بلوک چندخطی‌اند.
 //  - متن طولانی روی مرز خط به چند پیام تقسیم می‌شود و هیچ استایلی بین دو پیام قطع نمی‌شود.
@@ -80,8 +80,7 @@ function decode(str) {
       return;
     }
     const seg = { t: node.t, s: flat(node.kids), url: node.url };
-    if (parent && parent.t === 'Quote') parent.kids.push(seg);
-    else if (parent) parent.kids.push({ t: null, s: seg.s }); // استایل تو در تو: فقط متن می‌ماند
+    if (parent) parent.kids.push({ t: null, s: seg.s }); // استایل داخل استایل ممنوع است: فقط متن می‌ماند (حتی داخل نقل‌قول)
     else top.push(seg);
   };
 
@@ -258,7 +257,16 @@ function renderChunk(segs) {
   if (lead) parts.forEach((p) => { p.from_index -= lead; });
   text = trimmed.trimEnd();
   if (!text) return { text: ' ', plain: ' ' };
-  return parts.length ? { text, metadata: { meta_data_parts: parts }, plain } : { text, plain };
+  // نگهبان نهایی: هیچ دو استایلی نباید هم‌پوشانی داشته باشند
+  parts.sort((x, y) => x.from_index - y.from_index);
+  const okParts = [];
+  let end = 0;
+  for (const q of parts) {
+    if (q.from_index < end || q.length <= 0) continue;
+    okParts.push(q);
+    end = q.from_index + q.length;
+  }
+  return okParts.length ? { text, metadata: { meta_data_parts: okParts }, plain } : { text, plain };
 }
 
 // خروجی: آرایه‌ای از پیام‌ها؛ هر کدام {text, metadata | parse_mode, plain}

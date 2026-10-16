@@ -9,7 +9,8 @@ const cfg = {
   mongo: process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/rubika_war',
   ownerPass: process.env.OWNER_PASSWORD,
   adminPass: process.env.ADMIN_PASSWORD,
-  announceChat: process.env.ANNOUNCE_CHAT_ID || '',
+  announceChat: process.env.ANNOUNCE_CHAT_ID || '', // کانال/چت اعلان‌ها (محموله، نبرد، فصل)
+  groupChat: process.env.GROUP_CHAT_ID || '', // گروه بیانیه‌ها (اگر خالی باشد بیانیه‌ها در چت اعلان‌ها می‌روند)
   travelMin: num(process.env.TRAVEL_MINUTES, 5),
   seasonDays: Math.max(1, Math.floor(num(process.env.SEASON_DAYS, 30))),
   dayHours: num(process.env.DAY_HOURS, 0), // 0 = رفتن به روز بعد فقط دستی توسط مدیریت

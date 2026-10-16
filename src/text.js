@@ -48,8 +48,28 @@ const join = (a) => a.flat(Infinity).filter((x) => x != null && x !== false).joi
 const mono = (s) => M.Mono[0] + (s == null ? '' : s) + M.Mono[1];
 const bold = (s) => M.Bold[0] + (s == null ? '' : s) + M.Bold[1];
 const pre = (s) => M.Pre[0] + (s == null ? '' : s) + M.Pre[1];
-// نقل‌قول: چند خط را با خط جدید به هم می‌چسباند
-const quote = (...l) => M.Quote[0] + join(l) + M.Quote[1];
+// نقل‌قول: فقط متن ساده داخلش می‌رود. هر خطی که استایل دیگری (مونو، بولد، لینک، ...) داشته باشد
+// بیرون از نقل‌قول و به همان ترتیب چاپ می‌شود؛ پس هیچ استایلی هیچ‌وقت داخل استایل دیگر نیست.
+const STYLED = /[\uE000-\uE00A]/;
+const quote = (...l) => {
+  const lines = join(l).split('\n');
+  const out = [];
+  let run = [];
+  const flush = () => {
+    if (run.some((x) => x.trim())) out.push(M.Quote[0] + run.join('\n').replace(/^\n+|\n+$/g, '') + M.Quote[1]);
+    else if (run.length) out.push(...run);
+    run = [];
+  };
+  for (const ln of lines) {
+    if (STYLED.test(ln)) { flush(); out.push(ln); } else run.push(ln);
+  }
+  flush();
+  return out.join('\n');
+};
 const link = (text, url) => (/^https?:\/\/[^\s"'<>-]+$/.test(String(url)) ? LINK[0] + url + LINK[2] + text + LINK[1] : String(text));
 
-module.exports = { fa, en, nums, norm, clean, safe, safeMulti, usernameOk, mono, bold, quote, pre, link };
+// حذف ایموجی از برچسب دکمه‌ها (برای تطبیق مسیرها)
+const EMOJI = /[\p{Extended_Pictographic}\p{Regional_Indicator}\uFE0F\u200D\u20E3]/gu;
+const noEmoji = (s) => String(s == null ? '' : s).replace(EMOJI, '').replace(/\s+/g, ' ').trim();
+
+module.exports = { noEmoji, fa, en, nums, norm, clean, safe, safeMulti, usernameOk, mono, bold, quote, pre, link };

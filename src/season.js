@@ -74,7 +74,7 @@ async function advanceDay() {
     return { ...r, ended: true };
   }
   const n = await save({ ...s, day: s.day + 1, dayStart: Date.now() });
-  // بازسازی روزانه‌ی سلامت کشورها (حداکثر ۱۰۰)
+  // بازسازی روزانه‌ی هسته‌ی کشورها (حداکثر HP_MAX)
   await Country.updateMany({ status: 'active' }, { $inc: { hp: G.HP_REGEN } });
   await Country.updateMany({ status: 'active' }, { $min: { hp: G.HP_MAX } });
   const r = await ranked();

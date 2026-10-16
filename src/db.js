@@ -37,7 +37,7 @@ const Country = model(
       code: { type: String, unique: true },
       ownerId: { type: String, default: null },
       status: { type: String, default: 'active' }, // active | destroyed
-      hp: n(100), // سلامت کشور؛ صفر شدن = حذف تیم
+      hp: n(1000), // هسته‌ی کشور (برحسب موشک)؛ لایه‌ی آخر جان کشور. بعد از پدافندها و نیروها خورده می‌شود؛ صفر شدن = حذف تیم
       tier: { type: String, default: 'normal' }, // normal | military | economic
       res: { money: n(), oil: n(), gold: n(), gas: n(), copper: n(), soldiers: n() },
       units: { tank: n(), fighter: n(), drone: n(), missile: n(), ship: n(), sub: n() },
@@ -120,6 +120,27 @@ async function connect() {
       });
   }
   await connecting;
+  await migrateHp();
+}
+
+// یک‌بار: کشورهای قدیمی که جانشان از مقیاس ۱۰۰ بود به مقیاس ۱۰۰۰ می‌روند
+let migrated = false;
+async function migrateHp() {
+  if (migrated) return;
+  migrated = true;
+  try {
+    await Setting.create({ key: 'hpmig1000', value: '1' });
+  } catch (e) {
+    return; // قبلا انجام شده (یا هم‌زمان توسط سرور دیگر)
+  }
+  try {
+    await Country.updateMany({}, [{ $set: { hp: { $multiply: ['$hp', 10] } } }]);
+    console.log('[migrate] جان کشورها به مقیاس ۱۰۰۰ تبدیل شد');
+  } catch (e) {
+    console.error('[migrate]', e.message);
+    await Setting.deleteOne({ key: 'hpmig1000' }).catch(() => {});
+    migrated = false;
+  }
 }
 
 module.exports = { User, Country, Pack, Order, Shipment, Setting, Seen, connect };

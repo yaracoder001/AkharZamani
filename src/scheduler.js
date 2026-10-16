@@ -13,6 +13,14 @@ async function refund(s) {
   await G.change(s.fromId, d, {}, true);
 }
 
+// خلاصه‌ی خسارت لایه‌ای برای مدافع
+function lossText(h) {
+  const l = [];
+  if (Object.keys(h.lvLoss).length) l.push('پدافند از دست رفته:\n' + G.describeBundle({ levels: h.lvLoss }).replace(/\+/g, '-'));
+  if (Object.keys(h.unitLoss).length) l.push('نیروی از دست رفته:\n' + G.describeBundle({ units: h.unitLoss }));
+  return l.length ? '\n' + l.join('\n') : '';
+}
+
 async function land(s) {
   const from = await Country.findById(s.fromId);
   const to = await Country.findById(s.toId);
@@ -28,8 +36,13 @@ async function land(s) {
   if (s.kind === 'aid') {
     await G.change(to._id, G.pos(s.payload.res), {}, true);
     await Shipment.updateOne({ _id: s._id }, { $set: { status: 'delivered' } });
+    // ۵ دقیقه بعد، محموله‌ی سالم رسیده با عکس در کانال اعلام می‌شود
     await N.announce(
-      quote(bold('محموله تحویل شد')) + '\nکد رهگیری: ' + mono(s.code) + '\nمقصد: ' + mono(s.toName)
+      bold('محموله سالم به مقصد رسید') +
+        '\n\nکد رهگیری: ' + mono(s.code) +
+        '\nمبدا: ' + mono(s.fromName) +
+        '\nمقصد: ' + mono(s.toName),
+      'delivered'
     );
     await N.dm(to.ownerId, quote('محموله کمکی از ' + mono(s.fromName) + ' رسید.') + '\n' + G.describeBundle({ res: s.payload.res }));
     await N.dm(ownerOf(from), quote('محموله ' + mono(s.code) + ' به ' + mono(s.toName) + ' تحویل شد.'));
@@ -42,12 +55,16 @@ async function land(s) {
   for (const [k, v] of Object.entries(r.loot)) if (v) back['res.' + k] = (back['res.' + k] || 0) + v;
   await G.change(s.fromId, back, {}, true);
 
-  const loss = G.forceDelta(r.defLoss, -1);
+  // خسارت به مدافع: حمله‌ی موفق لایه‌به‌لایه می‌خورد (پدافند ← نیرو ← هسته)، ناموفق فقط کمی نیرو می‌گیرد
+  const loss = G.forceDelta(r.win ? r.hit.unitLoss : r.defLoss, -1);
+  if (r.win) {
+    for (const [k, v] of Object.entries(r.hit.lvLoss)) if (v) loss['lv.' + k] = -v;
+    if (r.hit.hpLoss) loss.hp = -r.hit.hpLoss;
+  }
   for (const [k, v] of Object.entries(r.loot)) if (v) loss['res.' + k] = (loss['res.' + k] || 0) - v;
-  const dmg = r.win ? G.damage(r) : 0;
-  if (dmg) loss.hp = -dmg;
   const after = await G.change(to._id, loss, {}, true);
   const hpLeft = Math.max(0, after ? after.hp : 0);
+  const lifeLeft = after ? G.lifeParts(after).total : 0;
 
   await Shipment.updateOne({ _id: s._id }, { $set: { status: 'delivered' } });
 
@@ -57,8 +74,10 @@ async function land(s) {
       '\n\nحمله‌کننده: ' + mono(s.fromName) +
       '\nمدافع: ' + mono(s.toName) +
       '\nپیروز: ' + mono(r.win ? s.fromName : s.toName) +
-      (r.win ? '\nسلامت مدافع: ' + mono(fa(hpLeft) + ' از ' + fa(G.HP_MAX)) : '') +
-      '\nکد رهگیری: ' + mono(s.code)
+      (r.win ? '\nضربه‌ی واردشده: ' + mono(fa(r.hits) + ' موشک') : '') +
+      (r.win ? '\nجان باقی‌مانده‌ی مدافع: ' + mono(fa(lifeLeft) + ' موشک') : '') +
+      '\nکد رهگیری: ' + mono(s.code),
+    'attack'
   );
 
   const lootTxt = Object.keys(r.loot).length ? '\nغنایم:\n' + G.describeBundle({ res: r.loot }) : '';
@@ -70,7 +89,8 @@ async function land(s) {
   await N.dm(
     to.ownerId,
     quote(bold(r.win ? 'کشور شما مورد حمله ' + tname + ' قرار گرفت و شکست خورد' : 'حمله ' + tname + ' دفع شد'), 'مهاجم: ' + s.fromName) +
-      (r.win ? '\nسلامت کشور: ' + mono(fa(hpLeft) + ' از ' + fa(G.HP_MAX)) : '') +
+      (r.win ? '\nهسته‌ی کشور: ' + mono(fa(hpLeft) + ' از ' + fa(G.HP_MAX)) + '\nجان کل: ' + mono(fa(lifeLeft) + ' موشک') : '') +
+      (r.win ? lossText(r.hit) : '') +
       lootTxt.replace('غنایم', 'منابع از دست رفته')
   );
 
