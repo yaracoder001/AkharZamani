@@ -812,8 +812,7 @@ R(
       mono(c.name) +
       " ـ " +
       stateName(c) +
-      (u.isOwner ? "\n    کد: " + mono(c.code) : "") + 
-      l.length
+      (u.isOwner ? "\n    کد: " + mono(c.code) : "")
     return say(
       u,
       quote(bold(u.isOwner ? "کشورها و کدها" : "کشورها")) + "\n\n" + l.map(row).join("\n"),
