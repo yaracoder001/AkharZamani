@@ -6,6 +6,7 @@ const T = require("./text");
 const G = require("./game");
 const N = require("./notify");
 const S = require("./season");
+const Gate = require("./gate");
 const { COUNTRIES, withFlag } = require("./countries");
 const M = require("./menus");
 const { User, Country, Pack, Order, Shipment, Setting } = require("./db");
@@ -353,16 +354,20 @@ R(
     const hrs = Math.min((now - c.lastClaim.getTime()) / 3.6e6, 24);
     if (hrs < 1 / 60)
       return say(u, quote("هنوز درآمدی جمع نشده است. کمی بعد تلاش کنید."));
-    const inc = {};
     const got = {};
-    for (const k in G.INCOME) {
-      const r = G.INCOME[k][0];
-      const v = Math.floor((G.income(k, c.lv[k], c.tier) * hrs) / 24);
-      if (v > 0) {
-        inc["res." + r] = v;
-        got[r] = v;
-      }
-    }
+    const add = (r, v) => {
+      if (v > 0) got[r] = (got[r] || 0) + v;
+    };
+    for (const k in G.INCOME)
+      add(G.INCOME[k][0], Math.floor((G.income(k, c.lv[k], c.tier) * hrs) / 24));
+    // سود روزانه‌ی ویژه‌ی کشور (اگر مدیریت تعیین کرده باشد)
+    for (const [r, v] of Object.entries(G.profitOf(c)))
+      add(r, Math.floor((v * hrs) / 24));
+    const inc = Object.fromEntries(
+      Object.entries(got).map(([r, v]) => ["res." + r, v]),
+    );
+    if (!Object.keys(inc).length)
+      return say(u, quote("هنوز درآمدی جمع نشده است. کمی بعد تلاش کنید."));
     const upd = await Country.findOneAndUpdate(
       { _id: c._id, lastClaim: c.lastClaim },
       { $inc: inc, $set: { lastClaim: new Date(now) } },
@@ -477,6 +482,11 @@ const targetsOf = (c) => ({
   ownerId: { $ne: null },
   _id: { $ne: c._id },
 });
+// پیدا کردن هدفِ انتخاب‌شده با شناسه (نباید _id را targetsOf بازنویسی کند؛ باگ «حمله به کشور اشتباه»)
+const targetById = (c, id) =>
+  !id || String(id) === String(c._id)
+    ? null
+    : Country.findOne({ ...targetsOf(c), _id: id });
 const listTargets = async (c) =>
   (await Country.find(targetsOf(c)).limit(60))
     .map((x) => mono(x.name))
@@ -503,6 +513,8 @@ const sentText = (s) =>
   );
 
 const attackBlock = async () => {
+  const gb = await Gate.blockText();
+  if (gb) return gb;
   const se = await S.get();
   if (se.state === "running") return null;
   return quote(
@@ -541,7 +553,7 @@ steps.atk_pct = P(async (u, c, t) => {
   if (blk) return home(u, blk);
   const d = u.state.data;
   const pct = Math.min(100, Math.max(1, Math.floor(T.nums(t)[0] || 0)));
-  const to = await Country.findOne({ _id: d.to, ...targetsOf(c) });
+  const to = await targetById(c, d.to);
   if (!to) return home(u, quote("هدف دیگر معتبر نیست."));
   const force = G.makeForce(c, d.type, pct);
   if (G.power(force) <= 0)
@@ -552,7 +564,7 @@ steps.atk_pct = P(async (u, c, t) => {
     c,
     to,
     { kind: "attack", type: d.type, payload: { force } },
-    "attack",
+    "attack_" + d.type,
   );
   await N.dm(
     to.ownerId,
@@ -572,6 +584,7 @@ steps.atk_pct = P(async (u, c, t) => {
 PICK("aid", "ارسال محموله", {
   level: "P",
   title: "ارسال محموله",
+  pre: async () => Gate.blockText(),
   filter: (u, c) => targetsOf(c),
   then: (u, to) =>
     ask(
@@ -585,6 +598,8 @@ PICK("aid", "ارسال محموله", {
     ),
 });
 steps.aid_amount = P(async (u, c, t) => {
+  const gb = await Gate.blockText();
+  if (gb) return home(u, gb);
   const n = T.nums(t);
   const res = {};
   Object.keys(G.RES).forEach((k, i) => {
@@ -592,7 +607,7 @@ steps.aid_amount = P(async (u, c, t) => {
   });
   if (!Object.keys(res).length)
     return ask(u, "aid_amount", quote("مقدار نامعتبر است."), u.state.data);
-  const to = await Country.findOne({ _id: u.state.data.to, ...targetsOf(c) });
+  const to = await targetById(c, u.state.data.to);
   if (!to) return home(u, quote("مقصد دیگر معتبر نیست."));
   const ok = await G.change(c._id, G.neg(res));
   if (!ok) return home(u, quote("منابع کافی ندارید."));
@@ -610,8 +625,10 @@ steps.aid_amount = P(async (u, c, t) => {
 
 R(
   "سرنگونی محموله",
-  P((u) =>
-    ask(
+  P(async (u) => {
+    const gb = await Gate.blockText();
+    if (gb) return say(u, gb);
+    return ask(
       u,
       "shoot",
       quote(
@@ -619,10 +636,12 @@ R(
         "کد رهگیری را ارسال کنید.",
         "هزینه هر شلیک: " + G.costText(G.SHOOT_COST),
       ),
-    ),
-  ),
+    );
+  }),
 );
 steps.shoot = P(async (u, c, t) => {
+  const gb = await Gate.blockText();
+  if (gb) return home(u, gb);
   const s = await Shipment.findOne({
     code: t.replace(/\s/g, "").toUpperCase(),
   });
@@ -1076,6 +1095,220 @@ PICK("release", "آزادسازی کشور", {
         mono(set.code),
     );
   },
+});
+
+// ---------- ریست کل / ریست یک کشور ----------
+// پایان مرحله: وضعیت پاک می‌شود و منوی اصلی با پیام نمایش داده می‌شود
+const done = async (u, text, rows) => {
+  await setState(u, null);
+  return say(u, text, rows);
+};
+
+R(
+  "ریست کل",
+  O((u) =>
+    askK(
+      u,
+      "rst_all",
+      quote(
+        bold("ریست کل"),
+        "همه‌ی کشورها به حالت اولیه‌ی رده‌ی خودشان برمی‌گردند (منابع، نیروها، سطح‌ها، جان).",
+        "رده، کد ورود و صاحب کشورها حفظ می‌شود و محموله‌های در راه لغو می‌شوند.",
+        "فصل و بازی دست نمی‌خورند و اعلانی ارسال نمی‌شود.",
+        "مطمئنید؟",
+      ),
+      M.yes,
+    ),
+  ),
+);
+steps.rst_all = O(async (u, t) => {
+  if (t !== "بله") return home(u, quote("لغو شد."));
+  const n = await S.resetAll();
+  return home(u, quote(bold("ریست کل انجام شد"), "تعداد کشور: " + mono(fa(n))));
+});
+
+PICK("rstc", "ریست کشور", {
+  level: "O",
+  title: "ریست کشور",
+  then: (u, c) =>
+    askK(
+      u,
+      "rstc_tier",
+      quote(
+        "کشور " + mono(c.name) + " به چه حالتی ریست شود؟",
+        "رده‌ی فعلی: " + G.TIERS[G.tierOf(c.tier)].name,
+        "«همین رده» یعنی با همان رده‌ی فعلی از نو ساخته شود.",
+      ),
+      M.resetTiers,
+      { id: String(c._id) },
+    ),
+});
+steps.rstc_tier = O(async (u, t) => {
+  const pick = {
+    عادی: "normal",
+    "نظامی ویژه": "military",
+    "اقتصادی ویژه": "economic",
+    "همین رده": "same",
+  }[t];
+  if (!pick)
+    return askK(
+      u,
+      "rstc_tier",
+      quote("یکی از گزینه‌ها را انتخاب کنید."),
+      M.resetTiers,
+      u.state.data,
+    );
+  const c = await Country.findById(u.state.data.id);
+  if (!c) return home(u, quote("کشور پیدا نشد."));
+  const tier = pick === "same" ? G.tierOf(c.tier) : pick;
+  const f = G.freshState(tier);
+  const set = {
+    tier,
+    res: f.res,
+    units: f.units,
+    lv: f.lv,
+    hp: f.hp,
+    lastClaim: f.lastClaim,
+    lastStatement: null,
+    status: "active",
+  };
+  if (c.status === "destroyed") set.ownerId = null; // کشور نابودشده آزاد و فعال می‌شود
+  await Country.updateOne({ _id: c._id }, { $set: set });
+  await Shipment.updateMany(
+    { fromId: c._id, status: "flying" },
+    { $set: { status: "returned" } },
+  );
+  if (c.status !== "destroyed")
+    await N.dm(
+      c.ownerId,
+      quote(
+        bold("کشور شما ریست شد"),
+        "حالت جدید: " + mono(G.TIERS[tier].name),
+      ),
+    );
+  return home(
+    u,
+    quote(
+      bold("کشور ریست شد"),
+      "نام: " + mono(c.name),
+      "حالت: " + mono(G.TIERS[tier].name),
+    ),
+  );
+});
+
+// ---------- سود ویژه‌ی یک کشور ----------
+PICK("profit", "سود کشور", {
+  level: "O",
+  title: "سود کشور",
+  then: (u, c) => {
+    const cur = G.describeBundle({ res: G.profitOf(c) });
+    return ask(
+      u,
+      "profit_set",
+      quote(
+        bold("سود روزانه‌ی " + c.name),
+        "این مقدار هر روز علاوه بر درآمد معمولی به کشور اضافه می‌شود و با «برداشت درآمد» گرفته می‌شود.",
+        "به ترتیب: پول، نفت، طلا، گاز، مس، سرباز",
+        "مثال: " + mono("500 0 0 20 0 0"),
+        "برای برداشتن سود: " + mono("حذف"),
+      ) +
+        "\n\n" +
+        quote("سود فعلی:") +
+        "\n" +
+        (cur || mono("ندارد")),
+      { id: String(c._id) },
+    );
+  },
+});
+steps.profit_set = O(async (u, t) => {
+  const keys = Object.keys(G.RES);
+  const p = {};
+  if (t === "حذف") keys.forEach((k) => (p[k] = 0));
+  else {
+    const n = T.nums(t);
+    if (!n.length)
+      return ask(u, "profit_set", quote("ورودی نامعتبر است. مثال: " + mono("500 0 0 20 0 0")), u.state.data);
+    keys.forEach((k, i) => (p[k] = Math.floor(n[i] > 0 ? n[i] : 0)));
+  }
+  const c = await Country.findById(u.state.data.id);
+  if (!c) return home(u, quote("کشور پیدا نشد."));
+  await Country.updateOne({ _id: c._id }, { $set: { profit: p } });
+  const shown = G.describeBundle({ res: G.profitOf({ profit: p }) });
+  return home(
+    u,
+    quote(bold("سود کشور ثبت شد"), "کشور: " + mono(c.name)) +
+      "\n" +
+      (shown || quote("سود برداشته شد.")),
+  );
+});
+
+// ---------- کنترل بازی (بدون اعلان): دستی یا خودکار با ساعت شروع و پایان ----------
+R("کنترل بازی", O(async (u) => say(u, await Gate.text(), M.gate)));
+R("وضعیت بازی", O(async (u) => say(u, await Gate.text(), M.gate)));
+R(
+  "شروع بازی",
+  O(async (u) => {
+    await Gate.setManual(true);
+    return say(u, quote("بازی شروع شد (حالت دستی).", "اعلانی ارسال نشد."), M.gate);
+  }),
+);
+R(
+  "توقف بازی",
+  O(async (u) => {
+    await Gate.setManual(false);
+    return say(
+      u,
+      quote("بازی متوقف شد (حالت دستی).", "اعلانی ارسال نشد.", "با «شروع بازی» دوباره باز می‌شود."),
+      M.gate,
+    );
+  }),
+);
+R(
+  "حالت دستی",
+  O(async (u) => {
+    await Gate.setManual(await Gate.isOpen());
+    return say(u, (await Gate.text()) + "\n" + quote("حالت دستی فعال شد."), M.gate);
+  }),
+);
+R(
+  "حالت خودکار",
+  O((u) =>
+    ask(
+      u,
+      "gate_from",
+      quote(
+        bold("حالت خودکار"),
+        "ساعت شروع روزانه را بفرستید (به وقت تهران).",
+        "مثال: " + mono("16") + " یا " + mono("16:30"),
+      ),
+    ),
+  ),
+);
+steps.gate_from = O((u, t) => {
+  const from = Gate.parseTime(t);
+  if (from == null)
+    return ask(u, "gate_from", quote("ساعت نامعتبر است. مثال: " + mono("16:30")));
+  return ask(
+    u,
+    "gate_to",
+    quote(
+      "ساعت شروع: " + mono(Gate.hhmm(from)),
+      "حالا ساعت پایان روزانه را بفرستید.",
+      "اگر پایان بعد از نیمه‌شب باشد (مثلاً " + mono("2") + ") مشکلی نیست.",
+    ),
+    { from },
+  );
+});
+steps.gate_to = O(async (u, t) => {
+  const to = Gate.parseTime(t);
+  if (to == null)
+    return ask(u, "gate_to", quote("ساعت نامعتبر است. مثال: " + mono("23:00")), u.state.data);
+  await Gate.setAuto(u.state.data.from, to);
+  return done(
+    u,
+    (await Gate.text()) + "\n" + quote("حالت خودکار فعال شد.", "اعلانی ارسال نشد."),
+    M.gate,
+  );
 });
 
 // مدیریت فصل

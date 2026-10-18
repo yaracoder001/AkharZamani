@@ -124,6 +124,14 @@ const income = (k, l, tier) =>
       (TIERS[tierOf(tier)].income[INCOME[k][0]] || 1),
   );
 
+// سود روزانه‌ی ویژه‌ی یک کشور (فقط مقادیر مثبت)
+const profitOf = (c) => {
+  const p = (c && c.profit) || {};
+  const o = {};
+  for (const k of Object.keys(RES)) if (Number(p[k]) > 0) o[k] = Math.floor(Number(p[k]));
+  return o;
+};
+
 const MAXLV = 30;
 const BASE_COST = {
   oilMine: { money: 1500, copper: 100 },
@@ -464,6 +472,9 @@ function statusText(c) {
         .join("\n"),
     ),
   ];
+  const pf = profitOf(c);
+  if (Object.keys(pf).length)
+    l.push("", bold("سود روزانه‌ی ویژه"), quote(describeBundle({ res: pf })));
   return l.join("\n");
 }
 
@@ -492,6 +503,7 @@ module.exports = {
   START,
   INCOME,
   income,
+  profitOf,
   TIERS,
   tierOf,
   startRes,

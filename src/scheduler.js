@@ -6,6 +6,7 @@ const N = require('./notify');
 const S = require('./season');
 const cfg = require('./config');
 const T = require('./text');
+const Gate = require('./gate');
 const { fa, mono, bold, quote } = T;
 
 async function refund(s) {
@@ -77,7 +78,7 @@ async function land(s) {
       (r.win ? '\nضربه‌ی واردشده: ' + mono(fa(r.hits) + ' موشک') : '') +
       (r.win ? '\nجان باقی‌مانده‌ی مدافع: ' + mono(fa(lifeLeft) + ' موشک') : '') +
       '\nکد رهگیری: ' + mono(s.code),
-    'attack'
+    'attack_' + s.type
   );
 
   const lootTxt = Object.keys(r.loot).length ? '\nغنایم:\n' + G.describeBundle({ res: r.loot }) : '';
@@ -110,6 +111,8 @@ async function autoDay() {
 async function tick() {
   await autoDay().catch((e) => console.error('[day]', e.message));
   // اگر تابع وسط رسیدن محموله متوقف شده باشد (مثلا timeout در Vercel)، محموله دوباره بررسی می‌شود
+  // وقتی بازی بسته است (توقف دستی یا خارج از ساعت خودکار) محموله‌ها نمی‌رسند؛ بعد از باز شدن می‌رسند
+  if (!(await Gate.isOpen().catch(() => true))) return;
   await Shipment.updateMany({ status: 'landing', updatedAt: { $lt: new Date(Date.now() - 120000) } }, { $set: { status: 'flying' } }).catch(() => {});
   const due = await Shipment.find({ status: 'flying', arriveAt: { $lte: new Date() } }).limit(20);
   for (const s of due) {

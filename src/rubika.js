@@ -89,7 +89,8 @@ async function dropId(name) {
   fileIds.delete(name);
   try { await require('./db').Setting.deleteOne({ key: fidKey(name) }); } catch (e) { /* ignore */ }
 }
-const IMG_FALLBACK = { delivered: 'shipment' };
+// اگر عکس اختصاصی نبود از عکس جایگزین استفاده می‌شود
+const IMG_FALLBACK = { delivered: 'shipment', attack_ground: 'attack', attack_air: 'attack', attack_naval: 'attack' };
 function findImage(name) {
   if (!name) return null;
   for (const ext of ['jpg', 'jpeg', 'png']) {
@@ -103,6 +104,10 @@ async function sendImage(chatId, name, caption) {
   // اگر عکس اختصاصی نبود از عکس جایگزین استفاده می‌شود (مثلا delivered ← shipment)
   const file = findImage(name) || findImage(IMG_FALLBACK[name] || '');
   if (!file) return send(chatId, caption);
+  // کلید کش به خودِ فایل وابسته است؛ با عوض کردن عکس (نام یا حجم فایل) عکس جدید خودکار آپلود می‌شود
+  let cacheKey = name;
+  try { cacheKey = name + '.' + path.basename(file) + '.' + fs.statSync(file).size; } catch (e) { /* ignore */ }
+  name = cacheKey;
   try {
     let id = await loadId(name);
     if (!id) {

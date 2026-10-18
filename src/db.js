@@ -41,6 +41,8 @@ const Country = model(
       tier: { type: String, default: 'normal' }, // normal | military | economic
       res: { money: n(), oil: n(), gold: n(), gas: n(), copper: n(), soldiers: n() },
       units: { tank: n(), fighter: n(), drone: n(), missile: n(), ship: n(), sub: n() },
+      // سود روزانه‌ی ویژه (تعیین‌شده توسط مدیریت)؛ علاوه بر درآمد معمولی برداشت می‌شود
+      profit: { money: n(), oil: n(), gold: n(), gas: n(), copper: n(), soldiers: n() },
       lv: {
         oilMine: n(1), goldMine: n(1), gasMine: n(1), copperMine: n(1),
         barracks: n(1), bank: n(1),
