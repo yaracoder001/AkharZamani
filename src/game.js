@@ -6,20 +6,20 @@ const { Country } = require("./db");
 const { fa, mono, bold, quote } = T;
 
 const RES = {
-  money: "پول",
-  oil: "نفت",
-  gold: "طلا",
-  gas: "گاز",
-  copper: "مس",
-  soldiers: "سرباز",
+  money: "💵 پول",
+  oil: "🛢️ نفت",
+  gold: "🪎 طلا",
+  gas: "⛽ گاز",
+  copper: "🪨 مس",
+  soldiers: "🪖 سرباز",
 };
 const UNITS = {
   tank: "تانک",
-  fighter: "جنگنده",
-  drone: "پهباد",
-  missile: "موشک",
-  ship: "ناو",
-  sub: "زیردریایی",
+  fighter: "🛩️ جنگنده",
+  drone: "✈️ پهباد",
+  missile: "✈️ موشک",
+  ship: "🚢 ناو",
+  sub: "⚓ زیردریایی",
 };
 const LV = {
   oilMine: "معدن نفت",

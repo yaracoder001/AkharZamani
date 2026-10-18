@@ -109,7 +109,7 @@ function PICK(act, label, { level, title, filter, pre, then }) {
       return askK(
         u,
         "pick_mode",
-        quote(bold(title), "روش انتخاب کشور را بزنید."),
+        quote(title, "روش انتخاب کشور را بزنید."),
         M.pickMode,
         { act },
       );
@@ -242,11 +242,7 @@ steps.code = async (u, t) => {
   });
   if (!c) return ask(u, "code", quote("کد نامعتبر است. دوباره ارسال کنید."));
   if (c.ownerId && c.ownerId !== u.userId)
-    return ask(
-      u,
-      "code",
-      quote("این کشور برای کاربر دیگری است."),
-    );
+    return ask(u, "code", quote("این کشور برای کاربر دیگری است."));
   if (u.countryId && String(u.countryId) !== String(c._id))
     return home(u, quote("شما از قبل یک کشور دارید."));
   const ok = await Country.findOneAndUpdate(
@@ -259,12 +255,7 @@ steps.code = async (u, t) => {
     },
     { new: true },
   );
-  if (!ok)
-    return ask(
-      u,
-      "code",
-      quote("این کشور برای کاربر دیگری است."),
-    );
+  if (!ok) return ask(u, "code", quote("این کشور برای کاربر دیگری است."));
   u.countryId = ok._id;
   await User.updateOne({ _id: u._id }, { $set: { countryId: ok._id } });
   return home(
@@ -291,10 +282,7 @@ R("ورود ادمین", (u) => ask(u, "pw_admin", quote("رمز ادمین را
 async function login(u, m, role) {
   await rb.deleteMessage(u.chatId, m.message_id).catch(() => {});
   if ((u.pwLock || 0) > Date.now())
-    return home(
-      u,
-      quote("تلاش زیاد؛ کمی بعد امتحان کنید."),
-    );
+    return home(u, quote("تلاش زیاد؛ کمی بعد امتحان کنید."));
   const pass = role === "owner" ? cfg.ownerPass : cfg.adminPass;
   if (!eq(String(m.text || "").trim(), pass)) {
     const n = (u.pwFails || 0) + 1;
@@ -305,10 +293,7 @@ async function login(u, m, role) {
         { _id: u._id },
         { $set: { pwFails: 0, pwLock: u.pwLock } },
       );
-      return home(
-        u,
-        quote("تلاش زیاد؛ ۱۰ دقیقه بعد امتحان کنید."),
-      );
+      return home(u, quote("تلاش زیاد؛ ۱۰ دقیقه بعد امتحان کنید."));
     }
     u.pwFails = n;
     await User.updateOne({ _id: u._id }, { $set: { pwFails: n } });
@@ -397,7 +382,7 @@ R(
 );
 
 R(
-  "ارتقاء زیرساخت",
+  "⬆️ ارتقاء زیرساخت",
   P((u, c) => {
     const lines = Object.keys(G.LV).map(
       (k, i) =>
@@ -405,9 +390,10 @@ R(
         ". " +
         G.LV[k] +
         " ـ سطح " +
-        mono(fa(c.lv[k])) +
+        fa(c.lv[k]) +
         "\n    هزینه: " +
-        G.costText(G.upCost(k, c.lv[k])),
+        G.costText(G.upCost(k, c.lv[k])) +
+        "\n\n",
     );
     return ask(
       u,
@@ -545,13 +531,10 @@ steps.atk_type = P(async (u, c, t) => {
       M.types,
       u.state.data,
     );
-  return askK(
-    u,
-    "atk_pct",
-    quote("چند درصد ارسال شود؟"),
-    M.pct,
-    { ...u.state.data, type },
-  );
+  return askK(u, "atk_pct", quote("چند درصد ارسال شود؟"), M.pct, {
+    ...u.state.data,
+    type,
+  });
 });
 steps.atk_pct = P(async (u, c, t) => {
   const blk = await attackBlock();
@@ -564,8 +547,7 @@ steps.atk_pct = P(async (u, c, t) => {
   if (G.power(force) <= 0)
     return home(u, quote("برای این نوع حمله نیروی کافی ندارید."));
   const ok = await G.change(c._id, G.forceDelta(force, -1));
-  if (!ok)
-    return home(u, quote("موجودی تغییر کرد. دوباره تلاش کنید."));
+  if (!ok) return home(u, quote("موجودی تغییر کرد. دوباره تلاش کنید."));
   const s = await launch(
     c,
     to,
@@ -700,12 +682,7 @@ R(
   "ارسال بیانیه",
   P(async (u, c) => {
     if (!(await N.statementId()))
-      return say(
-        u,
-        quote(
-          "گروه بیانیه‌ها تنظیم نشده است.",
-        ),
-      );
+      return say(u, quote("گروه بیانیه‌ها تنظیم نشده است."));
     if (c.lastStatement && Date.now() - c.lastStatement.getTime() < 300000)
       return say(u, quote("هر ۵ دقیقه یک بیانیه مجاز است."));
     return ask(u, "stmt", quote("متن بیانیه (حداکثر ۷۰۰ حرف):"));
@@ -770,9 +747,7 @@ async function sendStatement(u, c, body, fileId) {
   return home(
     u,
     quote(
-      fileId && !r.photo
-        ? "بیانیه ارسال شد (عکس نرفت)."
-        : "بیانیه ارسال شد.",
+      fileId && !r.photo ? "بیانیه ارسال شد (عکس نرفت)." : "بیانیه ارسال شد.",
     ),
   );
 }
@@ -890,7 +865,8 @@ R(
       let text = title + ` (${fa(start + 1)} تا ${fa(end)})\n\n`;
       for (let i = start; i < end; i++) {
         const c = l[i];
-        text += fa(i + 1) + ". " + mono(withFlag(c.name)) + " ـ " + stateName(c);
+        text +=
+          fa(i + 1) + ". " + mono(withFlag(c.name)) + " ـ " + stateName(c);
         if (isOwner) text += " | " + mono(c.code);
         text += "\n";
       }
@@ -1048,7 +1024,9 @@ steps.tier_pick = O(async (u, t) => {
   const inc = {
     ...G.pos(bonus),
     ...Object.fromEntries(Object.entries(bLv).map(([k, v]) => ["lv." + k, v])),
-    ...Object.fromEntries(Object.entries(bUnits).map(([k, v]) => ["units." + k, v])),
+    ...Object.fromEntries(
+      Object.entries(bUnits).map(([k, v]) => ["units." + k, v]),
+    ),
   };
   if (Object.keys(inc).length) upd.$inc = inc;
   await Country.updateOne({ _id: c._id }, upd);
@@ -1567,14 +1545,7 @@ steps.pub_dest = A(async (u, t) => {
   if ((dest === "group" || dest === "both") && !(await N.groupChatId()))
     miss.push("گروه");
   if (miss.length)
-    return home(
-      u,
-      quote(
-        "کانال/گروه " +
-          miss.join(" و ") +
-          " ثبت نشده است.",
-      ),
-    );
+    return home(u, quote("کانال/گروه " + miss.join(" و ") + " ثبت نشده است."));
   return ask(u, "pub_text", quote("متن پیام را ارسال کنید."), { dest });
 });
 steps.pub_text = A(async (u, t, m) => {
@@ -1662,26 +1633,12 @@ R(
 R(
   "ثبت لینک کانال",
   O((u) =>
-    ask(
-      u,
-      "set_channel",
-      quote(
-        "لینک یا آیدی کانال (مثل @name). حذف: «حذف»",
-      ),
-    ),
+    ask(u, "set_channel", quote("لینک یا آیدی کانال (مثل @name). حذف: «حذف»")),
   ),
 );
 R(
   "ثبت لینک گروه",
-  O((u) =>
-    ask(
-      u,
-      "set_group",
-      quote(
-        "لینک گروه را بفرستید. حذف: «حذف»",
-      ),
-    ),
-  ),
+  O((u) => ask(u, "set_group", quote("لینک گروه را بفرستید. حذف: «حذف»"))),
 );
 const LINK_RE = /^(?:https?:\/\/)?(?:www\.)?rubika\.ir\/([^\s?#]+)/i;
 const getChatInfo = async (cand) => {
