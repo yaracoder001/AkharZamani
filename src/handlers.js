@@ -215,25 +215,20 @@ steps.pick_list = async (u, t) => {
 
 // ---------- عمومی ----------
 const HELP = [
-  quote(bold("راهنمای بازی جنگ جهانی")),
+  quote(bold("راهنما")),
   "",
-  "شما مدیریت یک کشور را بر عهده دارید و با پول، نفت، طلا، گاز، مس و سرباز آن را قدرتمند می‌کنید.",
+  "درآمد: هر روز جمع می‌شود (تا ۲۴ ساعت ذخیره).",
+  "ارتقاء: معادن، پادگان، بانک، پدافند.",
+  "نیرو: تانک، جنگنده، پهباد، موشک، ناو، زیردریایی.",
+  "حمله: زمینی، هوایی، دریایی (فقط در زمان فصل).",
+  "محموله: کمک یا حمله؛ " +
+    fa(cfg.travelMin) +
+    " دقیقه در راه است و با کد رهگیری قابل سرنگونی است.",
   "",
-  "برداشت درآمد: درآمد روزانه تا ۲۴ ساعت ذخیره می‌شود.",
-  "ارتقاء زیرساخت: معادن، پادگان، بانک و سه پدافند.",
-  "خرید نیرو: تانک، جنگنده، پهباد، موشک، ناو و زیردریایی.",
-  "حمله: سه نوع زمینی، هوایی و دریایی.",
-  "ارسال محموله: کمک منابع به کشور دیگر.",
-  "محموله‌ها " +
-    cfg.travelMin +
-    " دقیقه در راه‌اند و با کد رهگیری قابل سرنگونی‌اند.",
-  "پک‌های ویژه فقط با پول واقعی خریداری می‌شوند.",
-  "",
-  "جان کشور: هر کشور تقریباً ۱۰۰۰ موشک جان دارد و جانش از سه لایه ساخته می‌شود؛ حمله‌ی موفق اول پدافندها، بعد نیروها (زمینی، هوایی، دریایی) و در آخر هسته‌ی کشور را می‌خورد.",
-  "",
-  "هر فصل بازی " +
+  "جان کشور: سه لایه؛ پدافند، نیروها، هسته. صفر شدن هسته یعنی حذف.",
+  "فصل " +
     fa(cfg.seasonDays) +
-    " روز است. تیمی که نابود شود حذف می‌شود و آخرین تیم باقی‌مانده، یا قوی‌ترین تیم در پایان فصل، برنده است. حمله فقط در زمان فصل فعال ممکن است. صفر شدن هسته‌ی کشور یعنی حذف. هسته هر روز کمی بازسازی می‌شود. روزها را مدیریت پیش می‌برد.",
+    " روزه است؛ آخرین تیم یا قوی‌ترین تیم برنده است.",
 ].join("\n");
 
 R("راهنما", (u) => say(u, HELP));
@@ -250,7 +245,7 @@ steps.code = async (u, t) => {
     return ask(
       u,
       "code",
-      quote("این کشور قبلاً به کاربر دیگری اختصاص یافته است."),
+      quote("این کشور برای کاربر دیگری است."),
     );
   if (u.countryId && String(u.countryId) !== String(c._id))
     return home(u, quote("شما از قبل یک کشور دارید."));
@@ -268,7 +263,7 @@ steps.code = async (u, t) => {
     return ask(
       u,
       "code",
-      quote("این کشور قبلاً به کاربر دیگری اختصاص یافته است."),
+      quote("این کشور برای کاربر دیگری است."),
     );
   u.countryId = ok._id;
   await User.updateOne({ _id: u._id }, { $set: { countryId: ok._id } });
@@ -298,7 +293,7 @@ async function login(u, m, role) {
   if ((u.pwLock || 0) > Date.now())
     return home(
       u,
-      quote("تلاش ناموفق زیاد بود. چند دقیقه بعد دوباره امتحان کنید."),
+      quote("تلاش زیاد؛ کمی بعد امتحان کنید."),
     );
   const pass = role === "owner" ? cfg.ownerPass : cfg.adminPass;
   if (!eq(String(m.text || "").trim(), pass)) {
@@ -312,7 +307,7 @@ async function login(u, m, role) {
       );
       return home(
         u,
-        quote("تلاش ناموفق زیاد بود. ۱۰ دقیقه بعد دوباره امتحان کنید."),
+        quote("تلاش زیاد؛ ۱۰ دقیقه بعد امتحان کنید."),
       );
     }
     u.pwFails = n;
@@ -527,7 +522,7 @@ const attackBlock = async () => {
   return quote(
     se.state === "ended"
       ? "فصل پایان یافته است و حمله ممکن نیست."
-      : "فصل هنوز شروع نشده است. حمله فقط در زمان فصل فعال ممکن است.",
+      : "فصل شروع نشده است.",
   );
 };
 PICK("atk", "حمله", {
@@ -553,7 +548,7 @@ steps.atk_type = P(async (u, c, t) => {
   return askK(
     u,
     "atk_pct",
-    quote("چند درصد از نیروهای این نوع و موشک‌ها ارسال شود؟"),
+    quote("چند درصد ارسال شود؟"),
     M.pct,
     { ...u.state.data, type },
   );
@@ -570,7 +565,7 @@ steps.atk_pct = P(async (u, c, t) => {
     return home(u, quote("برای این نوع حمله نیروی کافی ندارید."));
   const ok = await G.change(c._id, G.forceDelta(force, -1));
   if (!ok)
-    return home(u, quote("موجودی نیروها تغییر کرده است. دوباره تلاش کنید."));
+    return home(u, quote("موجودی تغییر کرد. دوباره تلاش کنید."));
   const s = await launch(
     c,
     to,
@@ -601,7 +596,7 @@ PICK("aid", "ارسال محموله", {
       u,
       "aid_amount",
       quote(
-        "مقدار را به ترتیب بفرستید: پول، نفت، طلا، گاز، مس، سرباز",
+        "به ترتیب: پول، نفت، طلا، گاز، مس، سرباز",
         "مثال: " + mono("1000 0 0 50 50 0"),
       ),
       { to: String(to._id) },
@@ -666,7 +661,7 @@ steps.shoot = P(async (u, c, t) => {
     { $push: { attempts: String(c._id) } },
   );
   if (Math.random() >= G.shootChance(c))
-    return home(u, quote("شلیک ناموفق بود. محموله به مسیر خود ادامه می‌دهد."));
+    return home(u, quote("شلیک ناموفق بود."));
   const hit = await Shipment.findOneAndUpdate(
     { _id: s._id, status: "flying", arriveAt: { $gt: new Date() } },
     { $set: { status: "shot" } },
@@ -708,12 +703,12 @@ R(
       return say(
         u,
         quote(
-          "گروه بیانیه‌ها هنوز تنظیم نشده است. مدیریت باید از «کانال و گروه» آن را ثبت کند.",
+          "گروه بیانیه‌ها تنظیم نشده است.",
         ),
       );
     if (c.lastStatement && Date.now() - c.lastStatement.getTime() < 300000)
       return say(u, quote("هر ۵ دقیقه یک بیانیه مجاز است."));
-    return ask(u, "stmt", quote("متن بیانیه را ارسال کنید (حداکثر ۷۰۰ حرف)."));
+    return ask(u, "stmt", quote("متن بیانیه (حداکثر ۷۰۰ حرف):"));
   }),
 );
 steps.stmt = P(async (u, c, t, m) => {
@@ -776,7 +771,7 @@ async function sendStatement(u, c, body, fileId) {
     u,
     quote(
       fileId && !r.photo
-        ? "بیانیه ارسال شد، اما ارسال عکس ممکن نشد و فقط متن رفت."
+        ? "بیانیه ارسال شد (عکس نرفت)."
         : "بیانیه ارسال شد.",
     ),
   );
@@ -1172,7 +1167,7 @@ const startBundle = (u, purpose, meta) =>
     "bb_menu",
     quote(
       "برای چه بخشی؟",
-      "یک بخش انتخاب کنید. برای حالت میکس چند بخش را پشت سر هم اضافه کنید و در پایان «پایان و ذخیره» را بزنید.",
+      "بخش را انتخاب کنید. برای میکس چند بخش اضافه و «پایان و ذخیره» بزنید.",
     ),
     M.bundle,
     { purpose, meta, bundle: { res: {}, units: {}, levels: {} } },
@@ -1213,7 +1208,7 @@ steps.bb_input = O(async (u, t) => {
       "\n" +
       G.describeBundle(d.bundle) +
       "\n\n" +
-      quote("بخش دیگری اضافه کنید یا پایان و ذخیره را بزنید."),
+      quote("بخش دیگر اضافه کنید یا ذخیره کنید."),
     M.bundle,
     d,
   );
@@ -1577,7 +1572,7 @@ steps.pub_dest = A(async (u, t) => {
       quote(
         "کانال/گروه " +
           miss.join(" و ") +
-          " هنوز ثبت نشده است. مدیریت اصلی از «کانال و گروه» آن را ثبت کند.",
+          " ثبت نشده است.",
       ),
     );
   return ask(u, "pub_text", quote("متن پیام را ارسال کنید."), { dest });
@@ -1651,10 +1646,8 @@ async function chatSettingsText() {
     (grl ? "\nلینک گروه: " + grl : "") +
     "\n\n" +
     quote(
-      "اعلان محموله، نبرد و فصل در کانال ارسال می‌شود و بیانیه‌ی بازیکن‌ها در گروه.",
-      "اگر گروه ثبت نشود بیانیه‌ها هم در کانال می‌روند.",
-      "ربات باید در کانال و گروه ادمین باشد.",
-      "برای ثبت، لینک گروه یا کانال را بفرستید. بعد از ثبت لینک، داخل گروه بنویسید: ثبت گروه",
+      "کانال: اعلان‌ها (لینک یا آیدی). گروه: بیانیه‌ها (فقط لینک).",
+      "ربات باید ادمین باشد.",
     )
   );
 }
@@ -1673,9 +1666,7 @@ R(
       u,
       "set_channel",
       quote(
-        "لینک کانال را ارسال کنید (مثل https://rubika.ir/...).",
-        "اگر آیدی عمومی دارد، آیدی هم قبول است.",
-        "برای حذف کلمه‌ی «حذف» را بفرستید.",
+        "لینک یا آیدی کانال (مثل @name). حذف: «حذف»",
       ),
     ),
   ),
@@ -1687,14 +1678,21 @@ R(
       u,
       "set_group",
       quote(
-        "لینک گروه را ارسال کنید (مثل https://rubika.ir/...).",
-        "برای حذف کلمه‌ی «حذف» را بفرستید.",
-        "بعد از ثبت لینک، اگر ربات خودش گروه را پیدا نکرد، داخل خود گروه بنویسید: ثبت گروه",
+        "لینک گروه را بفرستید. حذف: «حذف»",
       ),
     ),
   ),
 );
-const LINK_RE = /^https?:\/\/(?:www\.)?rubika\.ir\/([^\s?#]+)/i;
+const LINK_RE = /^(?:https?:\/\/)?(?:www\.)?rubika\.ir\/([^\s?#]+)/i;
+const getChatInfo = async (cand) => {
+  try {
+    const r = await rb.getChat(cand);
+    const ch = r && r.data && r.data.chat;
+    return ch && ch.chat_id ? ch : null;
+  } catch (e) {
+    return null;
+  }
+};
 const setChatStep = (kind) =>
   O(async (u, t, m) => {
     const raw = String(m.text || "").trim();
@@ -1706,18 +1704,13 @@ const setChatStep = (kind) =>
     }
     const lm = raw.match(LINK_RE);
     if (lm) {
-      // لینک ← ذخیره‌ی لینک + تلاش برای پیدا کردن شناسه‌ی چت از روی لینک
-      await N.setLink(kind, raw);
+      const link = raw.startsWith("http") ? raw : "https://" + raw;
+      await N.setLink(kind, link);
       let found = null;
-      for (const cand of [...new Set([lm[1], lm[1].split("/").pop()])]) {
-        try {
-          const r = await rb.getChat(cand);
-          const ch = r && r.data && r.data.chat;
-          if (ch && ch.chat_id) {
-            found = ch;
-            break;
-          }
-        } catch (e) {}
+      const last = lm[1].split("/").pop();
+      for (const cand of [...new Set([lm[1], last, last.replace(/^@/, "")])]) {
+        found = await getChatInfo(cand);
+        if (found) break;
       }
       if (found) await N.setChat(kind, found.chat_id);
       const title = found && (found.title || found.first_name);
@@ -1726,34 +1719,33 @@ const setChatStep = (kind) =>
         quote(
           "لینک " + name + " ثبت شد.",
           found
-            ? "چت پیدا شد و فعال است."
+            ? "چت پیدا شد."
             : kind === "group"
-              ? "ربات از روی لینک چت را پیدا نکرد. ربات را در گروه ادمین کنید و داخل گروه بنویسید: ثبت گروه"
-              : "ربات از روی لینک چت را پیدا نکرد. اگر کانال آیدی عمومی دارد، آیدی را هم بفرستید.",
+              ? "گروه پیدا نشد. ربات را ادمین کنید و در گروه بنویسید: ثبت گروه"
+              : "کانال پیدا نشد. آیدی کانال (مثل @name) را هم بفرستید.",
         ) +
           "\nلینک: " +
-          mono(raw) +
+          mono(link) +
           (title ? "\nنام: " + mono(title) : ""),
         M.chatSet,
       );
     }
-    // آیدی مستقیم (برای کانال‌هایی که آیدی دارند)
-    if (!/^[A-Za-z0-9_]{6,64}$/.test(raw))
-      return ask(
-        u,
-        "set_" + kind,
-        quote("لینک یا آیدی نامعتبر است. لینک را دوباره ارسال کنید."),
-      );
-    await N.setChat(kind, raw);
-    const info = await rb.getChat(raw).catch(() => ({}));
-    const title =
-      info &&
-      info.data &&
-      info.data.chat &&
-      (info.data.chat.title || info.data.chat.first_name);
+    // گروه فقط لینک می‌گیرد
+    if (kind === "group")
+      return ask(u, "set_group", quote("فقط لینک گروه را بفرستید."));
+    // کانال: آیدی با @ یا بدون @
+    const id = raw.replace(/^@/, "");
+    if (!/^[A-Za-z0-9_]{3,64}$/.test(id))
+      return ask(u, "set_channel", quote("لینک یا آیدی کانال را بفرستید."));
+    const found = await getChatInfo(id);
+    await N.setChat(kind, found ? found.chat_id : id);
+    const title = found && (found.title || found.first_name);
     return say(
       u,
-      quote(name + " ثبت شد.") + (title ? "\nنام: " + mono(title) : ""),
+      quote(
+        name + " ثبت شد.",
+        found ? "" : "ربات کانال را پیدا نکرد؛ ادمین بودن ربات را بررسی کنید.",
+      ) + (title ? "\nنام: " + mono(title) : ""),
       M.chatSet,
     );
   });
@@ -1794,7 +1786,7 @@ async function onPrivate(chatId, senderId, text, msg) {
     return routes[t](u, t, msg);
   }
   if (step && steps[step]) return steps[step](u, t, msg);
-  return home(u, quote("گزینه نامعتبر است. از منوی پایین استفاده کنید."));
+  return home(u, quote("از منوی پایین انتخاب کنید."));
 }
 
 async function onGroup(chatId, senderId, text) {

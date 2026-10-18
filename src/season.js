@@ -51,12 +51,12 @@ async function resetAll() {
 async function start() {
   const s = await get();
   if (s.state === 'running') return { ok: false, msg: 'فصل در حال اجراست.' };
-  if ((await alive()).length < 2) return { ok: false, msg: 'برای شروع فصل حداقل دو کشور دارای بازیکن لازم است.' };
+  if ((await alive()).length < 2) return { ok: false, msg: 'حداقل دو کشور بازیکن‌دار لازم است.' };
   const reset = await resetAll();
   const n = await save({ ...DEF(), state: 'running', day: 1, dayStart: Date.now() });
   await N.announce(
     quote(bold('فصل جدید آغاز شد'), 'مدت فصل: ' + mono(fa(n.maxDays) + ' روز'), 'روز ' + mono(fa(1))) +
-      '\n\nتیمی که تا پایان فصل بماند برنده است. تیمی که نابود شود از بازی حذف می‌شود.'
+      '\n\nتیم نابودشده حذف می‌شود.'
   );
   return { ok: true, season: n };
 }

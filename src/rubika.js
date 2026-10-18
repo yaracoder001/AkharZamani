@@ -134,17 +134,46 @@ async function sendImage(chatId, name, caption) {
   return send(chatId, caption);
 }
 
-// ارسال عکسِ از قبل آپلودشده با file_id (مثلا عکسی که ادمین/بازیکن در چت خصوصی فرستاده).
-// اگر ارسال با عکس شکست خورد فقط متن فرستاده می‌شود و مقدار withPhoto=false برمی‌گردد.
+// دانلود عکسِ دریافتی و آپلود دوباره (file_id پیام‌های کاربر گاهی مستقیم قابل ارسال به چت دیگر نیست)
+async function reupload(fileId) {
+  const g = await call('getFile', { file_id: fileId });
+  const dl = g.data && g.data.download_url;
+  if (!dl) return null;
+  const buf = Buffer.from(await (await fetch(dl, { signal: AbortSignal.timeout(30000) })).arrayBuffer());
+  const a = await call('requestSendFile', { type: 'Image' });
+  const url = a.data && a.data.upload_url;
+  if (!url) return null;
+  const fd = new FormData();
+  fd.append('file', new Blob([buf]), 'photo.jpg');
+  const up = await (await fetch(url, { method: 'POST', body: fd })).json();
+  return (up.data && up.data.file_id) || null;
+}
+
+// ارسال عکس با کپشن (کپشن طولانی: عکس + متن جدا)
+async function sendWithId(chatId, id, caption) {
+  const msgs = style.build(caption, 1000);
+  if (msgs.length === 1) return post('sendFile', { chat_id: chatId, file_id: id }, msgs[0]);
+  const r = await call('sendFile', { chat_id: chatId, file_id: id });
+  if (r.status === 'OK') await send(chatId, caption);
+  return r;
+}
+
+// ارسال عکسِ کاربر با file_id. اگر مستقیم نشد، عکس دوباره آپلود و ارسال می‌شود؛
+// فقط اگر هر دو شکست خورد متن بدون عکس می‌رود (withPhoto=false).
 async function sendFileId(chatId, fileId, caption) {
   try {
-    const msgs = style.build(caption, 1000);
-    if (msgs.length === 1) {
-      const r = await post('sendFile', { chat_id: chatId, file_id: fileId }, msgs[0]);
+    let r = await sendWithId(chatId, fileId, caption);
+    if (r.status === 'OK') return { ...r, withPhoto: true };
+    console.error('[photo] ارسال مستقیم نشد:', JSON.stringify(r).slice(0, 200));
+    const id2 = await reupload(fileId);
+    if (id2) {
+      r = await sendWithId(chatId, id2, caption);
       if (r.status === 'OK') return { ...r, withPhoto: true };
+      // آخرین تلاش: عکس بدون کپشن، بعد متن جدا
+      const r3 = await call('sendFile', { chat_id: chatId, file_id: id2 });
+      if (r3.status === 'OK') return { ...(await send(chatId, caption)), withPhoto: true };
     } else {
-      const r = await call('sendFile', { chat_id: chatId, file_id: fileId });
-      if (r.status === 'OK') return { ...(await send(chatId, caption)), withPhoto: true };
+      console.error('[photo] دانلود/آپلود دوباره ممکن نشد');
     }
   } catch (e) {
     console.error('[photo]', e.message);
