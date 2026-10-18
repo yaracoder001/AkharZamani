@@ -393,7 +393,7 @@ R(
         fa(c.lv[k]) +
         "\n    هزینه: " +
         G.costText(G.upCost(k, c.lv[k])) +
-        "\n\n",
+        "\n",
     );
     return ask(
       u,
