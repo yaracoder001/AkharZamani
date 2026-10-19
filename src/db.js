@@ -37,10 +37,19 @@ const Country = model(
       code: { type: String, unique: true },
       ownerId: { type: String, default: null },
       status: { type: String, default: 'active' }, // active | destroyed
-      hp: n(1000), // هسته‌ی کشور (برحسب موشک)؛ لایه‌ی آخر جان کشور. بعد از پدافندها و نیروها خورده می‌شود؛ صفر شدن = حذف تیم
+      hp: n(1000), // قدیمی و بی‌استفاده: جان کشور حالا فقط از پدافندها و نیروهای زمینی و دریایی حساب می‌شود
       tier: { type: String, default: 'normal' }, // normal | military | economic
       res: { money: n(), oil: n(), gold: n(), gas: n(), copper: n(), soldiers: n() },
-      units: { tank: n(), fighter: n(), drone: n(), missile: n(), ship: n(), sub: n() },
+      units: Object.fromEntries(
+        [
+          'tank', 'fighter', 'drone', 'missile', 'ship', 'sub',
+          // یگان‌های ویژه (باید با EXTRA در game.js یکی باشد)
+          'commando', 'apc', 'artillery', 'heavyTank',
+          'lightFighter', 'attackHeli', 'uav', 'bomber', 'stealth',
+          'rocket', 'cruise', 'ballistic', 'hypersonic',
+          'boat', 'corvette', 'destroyer', 'nuclearSub', 'carrier',
+        ].map((k) => [k, n()])
+      ),
       // سود روزانه‌ی ویژه (تعیین‌شده توسط مدیریت)؛ علاوه بر درآمد معمولی برداشت می‌شود
       profit: { money: n(), oil: n(), gold: n(), gas: n(), copper: n(), soldiers: n() },
       lv: {
@@ -49,6 +58,7 @@ const Country = model(
         airDef: n(0), groundDef: n(0), navalDef: n(0),
       },
       lastClaim: { type: Date, default: Date.now },
+      carry: { type: Mixed, default: {} }, // باقی‌مانده‌ی کسری تجهیزات روزانه‌ی پادگان (تا از بین نرود)
       lastStatement: { type: Date, default: null },
     },
     { timestamps: true }

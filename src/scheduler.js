@@ -60,12 +60,11 @@ async function land(s) {
   const loss = G.forceDelta(r.win ? r.hit.unitLoss : r.defLoss, -1);
   if (r.win) {
     for (const [k, v] of Object.entries(r.hit.lvLoss)) if (v) loss['lv.' + k] = -v;
-    if (r.hit.hpLoss) loss.hp = -r.hit.hpLoss;
   }
   for (const [k, v] of Object.entries(r.loot)) if (v) loss['res.' + k] = (loss['res.' + k] || 0) - v;
   const after = await G.change(to._id, loss, {}, true);
-  const hpLeft = Math.max(0, after ? after.hp : 0);
-  const lifeLeft = after ? G.lifeParts(after).total : 0;
+  const parts = after ? G.lifeParts(after) : null;
+  const lifeLeft = parts ? parts.total : 0;
 
   await Shipment.updateOne({ _id: s._id }, { $set: { status: 'delivered' } });
 
@@ -90,15 +89,15 @@ async function land(s) {
   await N.dm(
     to.ownerId,
     quote(bold(r.win ? 'کشور شما مورد حمله ' + tname + ' قرار گرفت و شکست خورد' : 'حمله ' + tname + ' دفع شد'), 'مهاجم: ' + s.fromName) +
-      (r.win ? '\nهسته‌ی کشور: ' + mono(fa(hpLeft) + ' از ' + fa(G.HP_MAX)) + '\nجان کل: ' + mono(fa(lifeLeft) + ' موشک') : '') +
+      (r.win ? '\nپدافندها: ' + mono(fa(parts.defense) + ' موشک') + '\nنیروی زمینی: ' + mono(fa(parts.ground) + ' موشک') + '\nنیروی دریایی: ' + mono(fa(parts.naval) + ' موشک') + '\nقدرت کل: ' + mono(fa(lifeLeft) + ' موشک') : '') +
       (r.win ? lossText(r.hit) : '') +
       lootTxt.replace('غنایم', 'منابع از دست رفته')
   );
 
-  // حذف تیم: سلامت کشور به صفر برسد
-  if (r.win && after && after.hp <= 0) {
+  // حذف تیم: پدافندها و نیروهای زمینی و دریایی همگی نابود شوند
+  if (r.win && after && lifeLeft <= 0) {
     const se = await S.get();
-    if (se.state === 'running') await S.eliminate(after, 'سلامت کشور در حمله ' + tname + ' از ' + s.fromName + ' به صفر رسید');
+    if (se.state === 'running') await S.eliminate(after, 'پدافندها و نیروهای زمینی و دریایی در حمله ' + tname + ' از ' + s.fromName + ' نابود شدند');
   }
 }
 

@@ -218,7 +218,7 @@ steps.pick_list = async (u, t) => {
 const HELP = [
   quote(bold("راهنما")),
   "",
-  "درآمد: هر روز جمع می‌شود (تا ۲۴ ساعت ذخیره).",
+  "درآمد: هر روز جمع می‌شود (تا ۲۴ ساعت ذخیره). پادگان هر روز موشک، جنگنده و تجهیزات نظامی هم تولید می‌کند و هرچه سطحش بالاتر باشد، تجهیزات قوی‌تر و بیشتری می‌دهد.",
   "ارتقاء: معادن، پادگان، بانک، پدافند.",
   "نیرو: تانک، جنگنده، پهباد، موشک، ناو، زیردریایی.",
   "حمله: زمینی، هوایی، دریایی (فقط در زمان فصل).",
@@ -226,7 +226,7 @@ const HELP = [
     fa(cfg.travelMin) +
     " دقیقه در راه است و با کد رهگیری قابل سرنگونی است.",
   "",
-  "جان کشور: سه لایه؛ پدافند، نیروها، هسته. صفر شدن هسته یعنی حذف.",
+  "قدرت کشور: پدافندها، نیروهای زمینی و نیروهای دریایی. اگر هر سه نابود شوند کشور حذف می‌شود.",
   "فصل " +
     fa(cfg.seasonDays) +
     " روزه است؛ آخرین تیم یا قوی‌ترین تیم برنده است.",
@@ -366,11 +366,23 @@ R(
     const inc = Object.fromEntries(
       Object.entries(got).map(([r, v]) => ["res." + r, v]),
     );
+    // تجهیزات روزانه‌ی پادگان (موشک، جنگنده و ...)؛ کسر هر یگان برای برداشت بعدی نگه داشته می‌شود
+    const gotUnits = {};
+    const carry = { ...(c.carry || {}) };
+    for (const [k, perDay] of Object.entries(G.milIncome(c.lv.barracks))) {
+      const total = (perDay * hrs) / 24 + (Number(carry[k]) || 0);
+      const whole = Math.floor(total + 1e-9);
+      carry[k] = Math.max(0, total - whole);
+      if (whole > 0) {
+        gotUnits[k] = whole;
+        inc["units." + k] = whole;
+      }
+    }
     if (!Object.keys(inc).length)
       return say(u, quote("هنوز درآمدی جمع نشده است. کمی بعد تلاش کنید."));
     const upd = await Country.findOneAndUpdate(
       { _id: c._id, lastClaim: c.lastClaim },
-      { $inc: inc, $set: { lastClaim: new Date(now) } },
+      { $inc: inc, $set: { lastClaim: new Date(now), carry } },
       { new: true },
     );
     if (!upd) return say(u, quote("لطفاً دوباره تلاش کنید."));
@@ -381,7 +393,7 @@ R(
         "مدت جمع‌آوری: " + mono(fa(hrs * 60) + " دقیقه"),
       ) +
         "\n" +
-        G.describeBundle({ res: got }),
+        G.describeBundle({ res: got, units: gotUnits }),
     );
   }),
 );
@@ -438,14 +450,24 @@ steps.upgrade = P(async (u, c, t) => {
 R(
   "خرید نیرو",
   P((u) => {
-    const lines = Object.keys(G.UNIT_COST).map(
-      (k, i) =>
+    let last = null;
+    const lines = [];
+    Object.keys(G.UNIT_COST).forEach((k, i) => {
+      const g = G.UNIT_GROUP[k];
+      if (g !== last) {
+        lines.push((last ? "\n" : "") + bold(G.GROUP_NAME[g]));
+        last = g;
+      }
+      lines.push(
         fa(i + 1) +
-        ". " +
-        G.UNITS[k] +
-        "\n    هر عدد: " +
-        G.costText(G.UNIT_COST[k]),
-    );
+          ". " +
+          G.UNITS[k] +
+          " (قدرت " +
+          fa(G.POW[k]) +
+          ")\n    " +
+          G.costText(G.UNIT_COST[k]),
+      );
+    });
     return ask(
       u,
       "buy",
@@ -543,10 +565,22 @@ steps.atk_type = P(async (u, c, t) => {
       M.types,
       u.state.data,
     );
-  return askK(u, "atk_pct", quote("چند درصد ارسال شود؟"), M.pct, {
-    ...u.state.data,
-    type,
-  });
+  return askK(
+    u,
+    "atk_pct",
+    quote(
+      G.totalForceText(c, type),
+      "",
+      G.previewText(c, type, [25, 50, 100]),
+      "",
+      "چند درصد ارسال شود؟",
+    ),
+    M.pct,
+    {
+      ...u.state.data,
+      type,
+    },
+  );
 });
 steps.atk_pct = P(async (u, c, t) => {
   const blk = await attackBlock();
@@ -578,7 +612,15 @@ steps.atk_pct = P(async (u, c, t) => {
       "کد رهگیری: " + mono(s.code),
     ),
   );
-  return home(u, sentText(s));
+  return home(
+    u,
+    sentText(s) +
+      "\n" +
+      quote(
+        bold("نیروهای ارسالی (از کل)"),
+        G.sentForceText(c, d.type, force),
+      ),
+  );
 });
 
 PICK("aid", "ارسال محموله", {
@@ -1112,7 +1154,7 @@ R(
       "rst_all",
       quote(
         bold("ریست کل"),
-        "همه‌ی کشورها به حالت اولیه‌ی رده‌ی خودشان برمی‌گردند (منابع، نیروها، سطح‌ها، جان).",
+        "همه‌ی کشورها به حالت اولیه‌ی رده‌ی خودشان برمی‌گردند (منابع، نیروها، سطح‌ها).",
         "رده، کد ورود و صاحب کشورها حفظ می‌شود و محموله‌های در راه لغو می‌شوند.",
         "فصل و بازی دست نمی‌خورند و اعلانی ارسال نمی‌شود.",
         "مطمئنید؟",
@@ -1167,7 +1209,6 @@ steps.rstc_tier = O(async (u, t) => {
     res: f.res,
     units: f.units,
     lv: f.lv,
-    hp: f.hp,
     lastClaim: f.lastClaim,
     lastStatement: null,
     status: "active",
@@ -1398,7 +1439,13 @@ steps.bb_menu = O(async (u, t) => {
       d,
     );
   d.cat = t;
-  return askK(u, "bb_input", quote(bold(t), c.ask), M.back, d);
+  return askK(
+    u,
+    "bb_input",
+    quote(bold(t), typeof c.ask === "function" ? c.ask() : c.ask),
+    M.back,
+    d,
+  );
 });
 steps.bb_input = O(async (u, t) => {
   const d = u.state.data;
@@ -1407,7 +1454,12 @@ steps.bb_input = O(async (u, t) => {
     return askK(
       u,
       "bb_input",
-      quote("ورودی نامعتبر است.", G.CATS[d.cat].ask),
+      quote(
+        "ورودی نامعتبر است.",
+        typeof G.CATS[d.cat].ask === "function"
+          ? G.CATS[d.cat].ask()
+          : G.CATS[d.cat].ask,
+      ),
       M.back,
       d,
     );

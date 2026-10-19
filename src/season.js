@@ -39,7 +39,7 @@ async function resetAll() {
   let n = 0;
   for (const c of all) {
     const f = G.freshState(c.tier);
-    const set = { res: f.res, units: f.units, lv: f.lv, hp: f.hp, lastClaim: f.lastClaim, lastStatement: null, status: 'active' };
+    const set = { res: f.res, units: f.units, lv: f.lv, lastClaim: f.lastClaim, lastStatement: null, status: 'active' };
     if (c.status === 'destroyed') set.ownerId = null;
     await Country.updateOne({ _id: c._id }, { $set: set });
     n++;
@@ -93,9 +93,6 @@ async function advanceDay() {
     return { ...r, ended: true };
   }
   const n = await save({ ...s, day: s.day + 1, dayStart: Date.now() });
-  // بازسازی روزانه‌ی هسته‌ی کشورها (حداکثر HP_MAX)
-  await Country.updateMany({ status: 'active' }, { $inc: { hp: G.HP_REGEN } });
-  await Country.updateMany({ status: 'active' }, { $min: { hp: G.HP_MAX } });
   const r = await ranked();
   await N.announce(
     quote(bold('روز ' + fa(n.day) + ' از ' + fa(n.maxDays)), 'تیم‌های باقی‌مانده: ' + mono(fa(r.length))) +
