@@ -450,30 +450,30 @@ steps.upgrade = P(async (u, c, t) => {
 R(
   "خرید نیرو",
   P((u) => {
-    let last = null;
-    const lines = [];
-    Object.keys(G.UNIT_COST).forEach((k, i) => {
-      const g = G.UNIT_GROUP[k];
-      if (g !== last) {
-        lines.push((last ? "\n" : "") + bold(G.GROUP_NAME[g]));
-        last = g;
-      }
-      lines.push(
-        fa(i + 1) +
-          ". " +
-          G.UNITS[k] +
-          " (قدرت " +
-          fa(G.POW[k]) +
-          ")\n    " +
-          G.costText(G.UNIT_COST[k]),
-      );
+    const sections = [];
+    G.GROUP_ORDER.forEach((g) => {
+      const lines = [];
+      G.BUY_ORDER.forEach((k, i) => {
+        if (G.UNIT_GROUP[k] !== g) return;
+        lines.push(
+          fa(i + 1) +
+            ". " +
+            G.UNITS[k] +
+            " (قدرت " +
+            fa(G.POW[k]) +
+            ")\n    " +
+            G.costText(G.UNIT_COST[k]),
+        );
+      });
+      if (lines.length)
+        sections.push(bold(G.GROUP_NAME[g]) + "\n" + quote(lines.join("\n")));
     });
     return ask(
       u,
       "buy",
       quote(bold("خرید نیرو")) +
         "\n\n" +
-        lines.join("\n") +
+        sections.join("\n\n") +
         "\n\n" +
         quote("شماره و تعداد را بفرستید. مثال: " + mono("2 5")),
     );
@@ -481,7 +481,7 @@ R(
 );
 steps.buy = P(async (u, c, t) => {
   const n = T.nums(t);
-  const k = Object.keys(G.UNIT_COST)[(n[0] || 0) - 1];
+  const k = G.BUY_ORDER[(n[0] || 0) - 1];
   const q = Math.floor(n[1] || 0);
   if (!k || q < 1 || q > 100000)
     return ask(u, "buy", quote("ورودی نامعتبر است. مثال: " + mono("2 5")));
@@ -555,6 +555,15 @@ PICK("atk", "حمله", {
       to: String(to._id),
     }),
 });
+// نام تمیز (بدون ایموجی) برای تطبیق دکمه/متن کاربر با نام یگان
+const cleanName = (x) => T.norm(T.noEmoji(x));
+const unitRows = (keys) => {
+  const rows = [];
+  for (let i = 0; i < keys.length; i += 2)
+    rows.push(keys.slice(i, i + 2).map((k) => G.unitName(k)));
+  rows.push(["↩️ بازگشت"]);
+  return rows;
+};
 steps.atk_type = P(async (u, c, t) => {
   const type = { زمینی: "ground", هوایی: "air", دریایی: "naval" }[t];
   if (!type)
@@ -565,31 +574,68 @@ steps.atk_type = P(async (u, c, t) => {
       M.types,
       u.state.data,
     );
+  const keys = G.ownedKeys(c, type);
+  if (!keys.length)
+    return home(u, quote("برای حمله‌ی " + G.TYPES[type].name + " نیرویی ندارید."));
   return askK(
     u,
-    "atk_pct",
+    "atk_unit",
     quote(
-      G.totalForceText(c, type),
+      G.optionsText(c, type, keys),
       "",
-      G.previewText(c, type, [25, 50, 100]),
-      "",
-      "چند درصد ارسال شود؟",
+      "با کدام نیرو حمله شود؟ دکمه را بزنید یا شماره را بفرستید.",
     ),
-    M.pct,
-    {
-      ...u.state.data,
-      type,
-    },
+    unitRows(keys),
+    { ...u.state.data, type, keys },
   );
 });
-steps.atk_pct = P(async (u, c, t) => {
+steps.atk_unit = P(async (u, c, t) => {
+  const d = u.state.data;
+  const keys = d.keys || [];
+  const n = /^[0-9۰-۹٠-٩]+$/.test(t) ? T.nums(t)[0] : 0;
+  const k = n ? keys[n - 1] : keys.find((x) => cleanName(G.unitName(x)) === cleanName(t));
+  if (!k)
+    return askK(
+      u,
+      "atk_unit",
+      quote("یکی از نیروهای لیست را انتخاب کنید."),
+      unitRows(keys),
+      d,
+    );
+  const have = Math.floor(G.qty(c, k));
+  if (have < 1) return home(u, quote("از این نیرو موجودی ندارید."));
+  return askK(
+    u,
+    "atk_qty",
+    quote(
+      G.unitName(k) + ": " + mono(fa(have)) + " عدد موجود",
+      "",
+      "چند عدد ارسال شود؟ عدد را بفرستید یا «همه» را بزنید.",
+    ),
+    M.qty,
+    { ...d, unit: k },
+  );
+});
+steps.atk_qty = P(async (u, c, t) => {
   const blk = await attackBlock();
   if (blk) return home(u, blk);
   const d = u.state.data;
-  const pct = Math.min(100, Math.max(1, Math.floor(T.nums(t)[0] || 0)));
+  const have = Math.floor(G.qty(c, d.unit));
+  const n = t === "همه" ? have : Math.floor(T.nums(t)[0] || 0);
+  if (n < 1 || n > have)
+    return askK(
+      u,
+      "atk_qty",
+      quote(
+        "تعداد نامعتبر است.",
+        "عددی بین " + mono(fa(1)) + " و " + mono(fa(have)) + " بفرستید.",
+      ),
+      M.qty,
+      d,
+    );
   const to = await targetById(c, d.to);
   if (!to) return home(u, quote("هدف دیگر معتبر نیست."));
-  const force = G.makeForce(c, d.type, pct);
+  const force = G.makeForce(d.unit, n);
   if (G.power(force) <= 0)
     return home(u, quote("برای این نوع حمله نیروی کافی ندارید."));
   const ok = await G.change(c._id, G.forceDelta(force, -1));
@@ -618,7 +664,7 @@ steps.atk_pct = P(async (u, c, t) => {
       "\n" +
       quote(
         bold("نیروهای ارسالی (از کل)"),
-        G.sentForceText(c, d.type, force),
+        G.sentForceText(c, force),
       ),
   );
 });

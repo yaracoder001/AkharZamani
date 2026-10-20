@@ -300,16 +300,24 @@ const EXTRA = {
     cost: { money: 12000, copper: 700, oil: 500, gold: 150 } },
 };
 const GROUP_NAME = {
-  base: "نیروهای پایه",
-  ground: "زمینی ویژه",
-  air: "هوایی ویژه",
+  ground: "نیروهای زمینی",
+  air: "نیروهای هوایی",
   missile: "موشک‌ها",
-  naval: "دریایی ویژه",
+  naval: "نیروهای دریایی",
+};
+// دسته‌ی نیروهای پایه (نیروهای ویژه دسته‌ی خودشان را در EXTRA دارند)
+const BASE_CAT = {
+  tank: "ground",
+  fighter: "air",
+  drone: "air",
+  missile: "missile",
+  ship: "naval",
+  sub: "naval",
 };
 // کلید موشک‌ها (مصرفی؛ در هر حمله‌ای همراه می‌روند)
 const MISSILE_KEYS = ["missile"];
 const UNIT_GROUP = {};
-for (const k of Object.keys(UNIT_COST)) UNIT_GROUP[k] = "base";
+for (const k of Object.keys(UNIT_COST)) UNIT_GROUP[k] = BASE_CAT[k] || "ground";
 for (const [k, e] of Object.entries(EXTRA)) {
   UNITS[k] = e.name;
   UNIT_COST[k] = e.cost;
@@ -321,6 +329,11 @@ for (const [k, e] of Object.entries(EXTRA)) {
   else TYPES[e.cat].units.push(k);
 }
 const EXTRA_KEYS = Object.keys(EXTRA);
+// ترتیب نمایش و شماره‌گذاری نیروها (خرید، دارایی): زمینی ← هوایی ← موشک ← دریایی
+const GROUP_ORDER = Object.keys(GROUP_NAME);
+const BUY_ORDER = GROUP_ORDER.flatMap((g) =>
+  Object.keys(UNIT_COST).filter((k) => UNIT_GROUP[k] === g),
+);
 const isMissile = (k) => MISSILE_KEYS.includes(k);
 const DEF_KEYS = ["airDef", "groundDef", "navalDef"];
 
@@ -370,50 +383,43 @@ const militaryOf = (c) =>
   c.res.soldiers +
   Object.keys(UNITS).reduce((a, k) => a + (c.units[k] || 0), 0);
 
-const makeForce = (c, type, pct) => {
-  const f = {};
-  for (const k of [...TYPES[type].units, ...MISSILE_KEYS]) {
-    const n = Math.floor((qty(c, k) * pct) / 100);
-    if (n > 0) f[k] = n;
-  }
-  return f;
-};
-
-// ---------- نمایش نیروهای حمله (کل / ارسالی) ----------
+// ---------- انتخاب نیروی حمله (نوع ← یگان ← تعداد) ----------
 const unitName = (k) => (k === "soldiers" ? RES.soldiers : UNITS[k]);
+// یگان‌هایی که کشور در این نوع حمله می‌تواند بفرستد (موشک‌ها در همه‌ی انواع هستند)
 const attackKeys = (type) => [...TYPES[type].units, ...MISSILE_KEYS];
-// فقط نیروهایی که کشور واقعاً دارد (تا پیام با ۲۴ نوع نیرو شلوغ نشود)
 const ownedKeys = (c, type) => attackKeys(type).filter((k) => qty(c, k) > 0);
 const NONE = "نیرویی ندارید.";
-// کل نیروهای قابل استفاده در این نوع حمله
-const totalForceText = (c, type) =>
-  bold("کل نیروهای " + TYPES[type].name + " شما") +
-  "\n" +
-  (ownedKeys(c, type)
-    .map((k) => unitName(k) + ": " + mono(fa(qty(c, k))))
-    .join("\n") || NONE);
-// پیش‌نمایش درصدها: «ارسالی از کل» برای هر نیرو
-const previewText = (c, type, pcts) =>
-  pcts
-    .map(
-      (pct) =>
-        bold(fa(pct) + " درصد") +
+// لیست شماره‌دار یگان‌های قابل ارسال، بخش‌بندی‌شده (نیروهای این نوع / موشک‌ها)
+const optionsText = (c, type, keys) => {
+  const part = (title, ks) =>
+    ks.length
+      ? bold(title) +
         "\n" +
-        (ownedKeys(c, type)
-          .map(
-            (k) =>
-              unitName(k) +
-              ": " +
-              mono(fa(Math.floor((qty(c, k) * pct) / 100))) +
-              " از " +
-              mono(fa(qty(c, k))),
-          )
-          .join("\n") || NONE),
-    )
+        quote(
+          ks
+            .map(
+              (k) =>
+                fa(keys.indexOf(k) + 1) +
+                ". " +
+                unitName(k) +
+                ": " +
+                mono(fa(qty(c, k))),
+            )
+            .join("\n"),
+        )
+      : "";
+  return [
+    part("نیروهای " + TYPES[type].name, keys.filter((k) => !isMissile(k))),
+    part("موشک‌ها", keys.filter(isMissile)),
+  ]
+    .filter(Boolean)
     .join("\n\n");
-// نیروی ارسال‌شده از کل (بعد از ارسال)
-const sentForceText = (c, type, force) =>
-  ownedKeys(c, type)
+};
+// فقط یک نوع یگان با تعداد مشخص ارسال می‌شود
+const makeForce = (k, n) => ({ [k]: n });
+// نیروی ارسال‌شده از کل (قبل از کسر موجودی)
+const sentForceText = (c, force) =>
+  Object.keys(force)
     .map(
       (k) =>
         unitName(k) +
@@ -582,13 +588,12 @@ const CATS = {
       "شماره‌ی نیرو و تعداد را بفرستید (همان شماره‌های «خرید نیرو»).\nمثال: " +
       mono("7 5") +
       "\n\n" +
-      Object.keys(UNIT_COST)
-        .map((k, i) => (EXTRA[k] ? fa(i + 1) + ". " + UNITS[k] : null))
+      BUY_ORDER.map((k, i) => (EXTRA[k] ? fa(i + 1) + ". " + UNITS[k] : null))
         .filter(Boolean)
         .join("\n"),
     parse: (s) => {
       const n = T.nums(s);
-      const k = Object.keys(UNIT_COST)[(n[0] || 0) - 1];
+      const k = BUY_ORDER[(n[0] || 0) - 1];
       const q = Math.floor(n[1] || 0);
       return k && EXTRA[k] && q > 0 ? { units: { [k]: q } } : null;
     },
@@ -607,6 +612,21 @@ const CATS = {
 };
 
 // ---------- متن‌ها ----------
+// نیروهای کشور به تفکیک بخش (زمینی، هوایی، موشک، دریایی)؛ فقط بخش‌هایی که نیرو دارند
+function unitSections(c) {
+  const out = [];
+  for (const g of GROUP_ORDER) {
+    const ks = BUY_ORDER.filter((k) => UNIT_GROUP[k] === g && qty(c, k) > 0);
+    if (!ks.length) continue;
+    out.push(
+      bold(GROUP_NAME[g]),
+      quote(ks.map((k) => UNITS[k] + ": " + fa(qty(c, k))).join("\n")),
+      "",
+    );
+  }
+  if (!out.length) return [bold("نیروها"), quote("هنوز نیرویی ندارید."), ""];
+  return out;
+}
 function statusText(c) {
   const l = [
     bold("وضعیت کشور") + " " + withFlag(c.name),
@@ -626,14 +646,7 @@ function statusText(c) {
         .join("\n"),
     ),
     "",
-    bold("نیروها"),
-    quote(
-      Object.keys(UNITS)
-        .filter((k) => qty(c, k) > 0)
-        .map((k) => UNITS[k] + ": " + fa(qty(c, k)))
-        .join("\n") || "هنوز نیرویی ندارید.",
-    ),
-    "",
+    ...unitSections(c),
     bold("زیرساخت‌ها"),
     quote(
       Object.keys(LV)
@@ -676,6 +689,7 @@ const shipText = (s, min) =>
   );
 
 module.exports = {
+  qty,
   RES,
   UNITS,
   LV,
@@ -705,9 +719,13 @@ module.exports = {
   SHOOT_COST,
   shootChance,
   makeForce,
-  totalForceText,
-  previewText,
+  attackKeys,
+  ownedKeys,
+  optionsText,
+  unitName,
   sentForceText,
+  BUY_ORDER,
+  GROUP_ORDER,
   power,
   defPower,
   battle,
